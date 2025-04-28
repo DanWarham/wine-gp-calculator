@@ -36,16 +36,28 @@ export default function Page() {
   const [costPriceInput, setCostPriceInput] = useState<string>("")
   const [wineType, setWineType] = useState<string>("Dry")
   const [isBTG, setIsBTG] = useState<boolean>(false)
-  const [debug] = useState<boolean>(false) // hidden internally
   const [gp, setGp] = useState<number>(75)
   const [suggestedGp, setSuggestedGp] = useState<number>(75)
   const [loading, setLoading] = useState<boolean>(false)
 
-  const availableSizes = debug
-    ? ["75", "125", "150", "175", "250", "375", "500", "Bottle"]
-    : WINE_SIZES[wineType] || []
+  // New states for Bottle Size
+  const [bottleSize, setBottleSize] = useState<string>("Bottle")
+  const [customBottleSizeInput, setCustomBottleSizeInput] = useState<string>("")
 
+  const availableSizes = WINE_SIZES[wineType] || []
   const costPrice = parseFloat(costPriceInput) || 0
+
+  // Calculate Base Bottle Volume
+  const baseBottleMl = bottleSize === "Half" ? 375
+    : bottleSize === "Bottle" ? 750
+    : bottleSize === "Magnum" ? 1500
+    : parseInt(customBottleSizeInput) || 750
+
+  const bottleLabel = bottleSize === "Other"
+    ? `${customBottleSizeInput}ml`
+    : bottleSize === "Half" ? "Half Bottle"
+    : bottleSize === "Bottle" ? "Bottle"
+    : "Magnum"
 
   useEffect(() => {
     setLoading(true)
@@ -54,7 +66,7 @@ export default function Page() {
       setSuggestedGp(Math.round(suggested))
       setGp(Math.round(suggested))
       setLoading(false)
-    }, 200) // slight delay for UX smoothness
+    }, 200)
 
     return () => clearTimeout(timeout)
   }, [costPrice, isBTG])
@@ -89,6 +101,30 @@ export default function Page() {
               <option value="Sweet">Sweet/Fortified</option>
               <option value="Sparkling">Sparkling</option>
             </select>
+          </div>
+
+          <div className="space-y-4">
+            <label className="block text-sm font-semibold text-gray-700">Bottle Size:</label>
+            <select
+              value={bottleSize}
+              onChange={(e) => setBottleSize(e.target.value)}
+              className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="Half">Half Bottle (375ml)</option>
+              <option value="Bottle">Bottle (750ml)</option>
+              <option value="Magnum">Magnum (1500ml)</option>
+              <option value="Other">Other</option>
+            </select>
+
+            {bottleSize === "Other" && (
+              <Input
+                type="text"
+                inputMode="numeric"
+                placeholder="Enter custom bottle size in ml (e.g., 3000)"
+                value={customBottleSizeInput}
+                onChange={(e) => setCustomBottleSizeInput(e.target.value)}
+              />
+            )}
           </div>
 
           <div className="flex">
@@ -127,23 +163,22 @@ export default function Page() {
                   <tbody>
                     {availableSizes
                       .filter(size => {
-                        if (debug) return true
                         if (!isBTG) return size === "Bottle"
                         return true
                       })
                       .map((size) => {
-                        const ml = size === "Bottle" ? 750 : parseInt(size)
+                        const ml = size === "Bottle" ? baseBottleMl : parseInt(size)
                         let basePrice = calculatePrice(costPrice, gp)
 
                         if (isBTG && size === "Bottle") {
                           basePrice = basePrice * 0.95
                         }
 
-                        const price = ((basePrice / 750) * ml).toFixed(2)
+                        const price = ((basePrice / baseBottleMl) * ml).toFixed(2)
 
                         return (
                           <tr key={size} className="hover:bg-gray-100">
-                            <td className="border p-2 text-center">{size === "Bottle" ? "Bottle" : `${size}ml`}</td>
+                            <td className="border p-2 text-center">{size === "Bottle" ? bottleLabel : `${size}ml`}</td>
                             <td className="border p-2 text-center">£{price}</td>
                           </tr>
                         )
