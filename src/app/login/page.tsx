@@ -6,17 +6,19 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { useRouter } from "next/navigation"
+import { useToast } from "@/components/toast-provider"
 
 export default function LoginPage() {
   const router = useRouter()
+  const { showToast } = useToast()
+
   const [email, setEmail] = useState<string>("")
   const [password, setPassword] = useState<string>("")
   const [loading, setLoading] = useState<boolean>(false)
-  const [message, setMessage] = useState<string | null>(null)
+  const [fadeOut, setFadeOut] = useState<boolean>(false)
 
   const handleLogin = async () => {
     setLoading(true)
-    setMessage(null)
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -24,9 +26,19 @@ export default function LoginPage() {
     })
 
     if (error) {
-      setMessage(`❌ Error: ${error.message}`)
+      const { data, error: lookupError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .single()
+
+      if (lookupError || !data) {
+        showToast("❌ Email not found. Would you like to register?", "error")
+      } else {
+        showToast("❌ Incorrect password. Please try again.", "error")
+      }
     } else {
-      setMessage("✅ Logged in successfully!")
+      showToast("✅ Logged in successfully!", "success")
       setTimeout(() => {
         router.push("/") // Redirect to home after login
       }, 1000)
@@ -35,8 +47,15 @@ export default function LoginPage() {
     setLoading(false)
   }
 
+  const handleGoToSignup = () => {
+    setFadeOut(true)
+    setTimeout(() => {
+      router.push('/signup')
+    }, 300) // 300ms fade
+  }
+
   return (
-    <main className="p-6 max-w-md mx-auto flex flex-col justify-center min-h-screen">
+    <main className={`p-6 max-w-md mx-auto flex flex-col justify-center min-h-screen transition-opacity duration-300 ${fadeOut ? 'opacity-0' : 'opacity-100'}`}>
       <Card className="shadow-md">
         <CardContent className="space-y-6 py-8">
           <h1 className="text-2xl font-bold text-center">Log In</h1>
@@ -69,11 +88,15 @@ export default function LoginPage() {
             {loading ? "Logging in..." : "Log In"}
           </Button>
 
-          {message && (
-            <div className="text-center text-sm pt-2">
-              {message}
-            </div>
-          )}
+          <div className="text-center py-4 text-gray-500">— OR —</div>
+
+          <Button
+            variant="outline"
+            onClick={handleGoToSignup}
+            className="w-full"
+          >
+            Register
+          </Button>
         </CardContent>
       </Card>
     </main>
