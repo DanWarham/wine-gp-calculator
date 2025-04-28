@@ -15,7 +15,35 @@ const WINE_SIZES: Record<string, string[]> = {
   Sparkling: ["150", "Bottle"]
 }
 
-function calculateGP(cost: number, isBTG: boolean, rules: any[]): number {
+// Define the proper Rule types instead of any
+interface BaseRule {
+  type: 'less_than' | 'greater_than' | 'between' | 'all_gp'
+}
+interface LessThanRule extends BaseRule {
+  type: 'less_than'
+  max: number
+  gp: number
+}
+interface GreaterThanRule extends BaseRule {
+  type: 'greater_than'
+  min: number
+  gp: number
+}
+interface BetweenRule extends BaseRule {
+  type: 'between'
+  min: number
+  max: number
+  start_gp: number
+  end_gp: number
+}
+interface AllGpRule extends BaseRule {
+  type: 'all_gp'
+  gp: number
+}
+
+type Rule = LessThanRule | GreaterThanRule | BetweenRule | AllGpRule
+
+function calculateGP(cost: number, isBTG: boolean, rules: Rule[]): number {
   if (!rules.length) return 70
 
   const allGpRule = rules.find(rule => rule.type === 'all_gp')
@@ -57,8 +85,7 @@ export default function Page() {
   const [customBottleSizeInput, setCustomBottleSizeInput] = useState<string>("")
 
   const [showSetupModal, setShowSetupModal] = useState<boolean>(false)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [rules, setRules] = useState<any[]>([])
+  const [rules, setRules] = useState<Rule[]>([])
 
   const availableSizes = WINE_SIZES[wineType] || []
   const costPrice = parseFloat(costPriceInput) || 0
@@ -84,7 +111,6 @@ export default function Page() {
       }
 
       const user = session.user
-      setUserId(user.id)
 
       const { data, error } = await supabase
         .from('gp_settings')
