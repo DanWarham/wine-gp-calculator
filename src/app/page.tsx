@@ -7,28 +7,22 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 
-const VAT_RATE = 0.2
-
-const WINE_SIZES: Record<string, string[]> = {
-  Dry: ["125", "175", "250", "500", "Bottle"],
-  Sweet: ["75", "Bottle"],
-  Sparkling: ["150", "Bottle"]
-}
-
-// Define the proper Rule types instead of any
 interface BaseRule {
-  type: 'less_than' | 'greater_than' | 'between' | 'all_gp'
+  type: 'less_than' | 'between' | 'greater_than' | 'all_gp'
 }
+
 interface LessThanRule extends BaseRule {
   type: 'less_than'
   max: number
   gp: number
 }
+
 interface GreaterThanRule extends BaseRule {
   type: 'greater_than'
   min: number
   gp: number
 }
+
 interface BetweenRule extends BaseRule {
   type: 'between'
   min: number
@@ -36,40 +30,13 @@ interface BetweenRule extends BaseRule {
   start_gp: number
   end_gp: number
 }
+
 interface AllGpRule extends BaseRule {
   type: 'all_gp'
   gp: number
 }
 
 type Rule = LessThanRule | GreaterThanRule | BetweenRule | AllGpRule
-
-function calculateGP(cost: number, isBTG: boolean, rules: Rule[]): number {
-  if (!rules.length) return 70
-
-  const allGpRule = rules.find(rule => rule.type === 'all_gp')
-  if (allGpRule) {
-    return allGpRule.gp
-  }
-
-  for (const rule of rules) {
-    if (rule.type === 'less_than' && cost < rule.max) {
-      return rule.gp
-    }
-    if (rule.type === 'greater_than' && cost > rule.min) {
-      return rule.gp
-    }
-    if (rule.type === 'between' && cost >= rule.min && cost <= rule.max) {
-      const proportion = (cost - rule.min) / (rule.max - rule.min)
-      return rule.start_gp - proportion * (rule.start_gp - rule.end_gp)
-    }
-  }
-
-  return 70
-}
-
-function calculatePrice(cost: number, gp: number): number {
-  return (cost * (1 + VAT_RATE)) / (1 - gp / 100)
-}
 
 export default function Page() {
   const router = useRouter()
@@ -80,15 +47,23 @@ export default function Page() {
   const [gp, setGp] = useState<number>(75)
   const [suggestedGp, setSuggestedGp] = useState<number>(75)
   const [loading, setLoading] = useState<boolean>(false)
-
-  const [bottleSize, setBottleSize] = useState<string>("Bottle")
-  const [customBottleSizeInput, setCustomBottleSizeInput] = useState<string>("")
-
-  const [showSetupModal, setShowSetupModal] = useState<boolean>(false)
   const [rules, setRules] = useState<Rule[]>([])
+  const [loadingSession, setLoadingSession] = useState(true)
+  const [showSetupModal, setShowSetupModal] = useState(false)
+
+  const VAT_RATE = 0.2
+
+  const WINE_SIZES: Record<string, string[]> = {
+    Dry: ["125", "175", "250", "500", "Bottle"],
+    Sweet: ["75", "Bottle"],
+    Sparkling: ["150", "Bottle"]
+  }
 
   const availableSizes = WINE_SIZES[wineType] || []
   const costPrice = parseFloat(costPriceInput) || 0
+
+  const [bottleSize, setBottleSize] = useState<string>("Bottle")
+  const [customBottleSizeInput, setCustomBottleSizeInput] = useState<string>("")
 
   const baseBottleMl = bottleSize === "Half" ? 375
     : bottleSize === "Bottle" ? 750
@@ -101,8 +76,34 @@ export default function Page() {
     : bottleSize === "Bottle" ? "Bottle"
     : "Magnum"
 
+  function calculateGP(cost: number, isBTG: boolean, rules: Rule[]): number {
+    if (!rules.length) return 70
+
+    const allGpRule = rules.find(rule => rule.type === 'all_gp')
+    if (allGpRule) return allGpRule.gp
+
+    for (const rule of rules) {
+      if (rule.type === 'less_than' && cost < rule.max) {
+        return rule.gp
+      }
+      if (rule.type === 'greater_than' && cost > rule.min) {
+        return rule.gp
+      }
+      if (rule.type === 'between' && cost >= rule.min && cost <= rule.max) {
+        const proportion = (cost - rule.min) / (rule.max - rule.min)
+        return rule.start_gp - proportion * (rule.start_gp - rule.end_gp)
+      }
+    }
+
+    return 70
+  }
+
+  function calculatePrice(cost: number, gp: number): number {
+    return (cost * (1 + VAT_RATE)) / (1 - gp / 100)
+  }
+
   useEffect(() => {
-    const fetchUserSettings = async () => {
+    const fetchSettings = async () => {
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session) {
@@ -111,21 +112,22 @@ export default function Page() {
       }
 
       const user = session.user
-
       const { data, error } = await supabase
         .from('gp_settings')
         .select('*')
         .eq('user_id', user.id)
         .single()
 
-      if (error || !data) {
+      if (error || !data || !data.rules || data.rules.length === 0) {
         setShowSetupModal(true)
       } else {
-        setRules(data.rules || [])
+        setRules(data.rules)
       }
+
+      setLoadingSession(false)
     }
 
-    fetchUserSettings()
+    fetchSettings()
   }, [router])
 
   useEffect(() => {
@@ -147,6 +149,10 @@ export default function Page() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push("/welcome")
+  }
+
+  if (loadingSession) {
+    return null
   }
 
   return (
@@ -220,7 +226,6 @@ export default function Page() {
             )}
           </div>
 
-          {/* BY THE GLASS BUTTON */}
           <div className="flex">
             <Button
               variant={isBTG ? "default" : "outline"}
@@ -231,7 +236,6 @@ export default function Page() {
             </Button>
           </div>
 
-          {/* GP CONTROLS */}
           <div className="flex flex-wrap gap-4 justify-center">
             <Button className="w-24" size="sm" onClick={() => handleNudge(-1)}>-1%</Button>
             <div className="font-semibold text-gray-700 self-center">GP: {gp}%</div>
@@ -241,7 +245,6 @@ export default function Page() {
             </Button>
           </div>
 
-          {/* PRICING TABLE */}
           <div className="pt-6">
             <div className="border-t pt-4">
               <h2 className="text-lg font-bold text-gray-800 mb-2">Price Suggestions:</h2>
@@ -288,16 +291,13 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* NEW MANDATORY RULE SETUP MODAL */}
       {showSetupModal && (
         <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center">
           <div className="bg-white rounded-lg p-6 space-y-4 shadow-lg">
             <h2 className="text-xl font-bold text-gray-900">No GP Rules Found</h2>
             <p className="text-gray-700">You must create a rule set to continue.</p>
             <div className="flex justify-end gap-4 pt-4">
-              <Button onClick={() => router.push("/gp-setup")}>
-                Create Rules
-              </Button>
+              <Button onClick={() => router.push("/gp-setup")}>Create Rules</Button>
             </div>
           </div>
         </div>
