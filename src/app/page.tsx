@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { supabase } from "@/lib/supabaseClient"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,19 +15,28 @@ const WINE_SIZES: Record<string, string[]> = {
   Sparkling: ["150", "Bottle"]
 }
 
-function calculateGP(cost: number, isBTG: boolean): number {
-  if (isBTG) {
-    if (cost < 20) return 75
-    if (cost < 50) return 75 - ((cost - 20) / 30) * (75 - 68)
-    return 68
-  } else {
-    if (cost < 13) return 75
-    if (cost < 20) return 75 - ((cost - 13) / 7) * (75 - 72)
-    if (cost < 50) return 72 - ((cost - 20) / 30) * (72 - 65)
-    if (cost < 75) return 65 - ((cost - 50) / 25) * (65 - 58)
-    if (cost < 100) return 58 - ((cost - 75) / 25) * (58 - 50)
-    return 50
+function calculateGP(cost: number, isBTG: boolean, rules: any[]): number {
+  if (!rules.length) return 70
+
+  const allGpRule = rules.find(rule => rule.type === 'all_gp')
+  if (allGpRule) {
+    return allGpRule.gp
   }
+
+  for (const rule of rules) {
+    if (rule.type === 'less_than' && cost < rule.max) {
+      return rule.gp
+    }
+    if (rule.type === 'greater_than' && cost > rule.min) {
+      return rule.gp
+    }
+    if (rule.type === 'between' && cost >= rule.min && cost <= rule.max) {
+      const proportion = (cost - rule.min) / (rule.max - rule.min)
+      return rule.start_gp - proportion * (rule.start_gp - rule.end_gp)
+    }
+  }
+
+  return 70
 }
 
 function calculatePrice(cost: number, gp: number): number {
@@ -33,6 +44,8 @@ function calculatePrice(cost: number, gp: number): number {
 }
 
 export default function Page() {
+  const router = useRouter()
+
   const [costPriceInput, setCostPriceInput] = useState<string>("")
   const [wineType, setWineType] = useState<string>("Dry")
   const [isBTG, setIsBTG] = useState<boolean>(false)
@@ -40,14 +53,16 @@ export default function Page() {
   const [suggestedGp, setSuggestedGp] = useState<number>(75)
   const [loading, setLoading] = useState<boolean>(false)
 
-  // New states for Bottle Size
   const [bottleSize, setBottleSize] = useState<string>("Bottle")
   const [customBottleSizeInput, setCustomBottleSizeInput] = useState<string>("")
+
+  const [showSetupModal, setShowSetupModal] = useState<boolean>(false)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [rules, setRules] = useState<any[]>([])
 
   const availableSizes = WINE_SIZES[wineType] || []
   const costPrice = parseFloat(costPriceInput) || 0
 
-  // Calculate Base Bottle Volume
   const baseBottleMl = bottleSize === "Half" ? 375
     : bottleSize === "Bottle" ? 750
     : bottleSize === "Magnum" ? 1500
@@ -60,25 +75,77 @@ export default function Page() {
     : "Magnum"
 
   useEffect(() => {
+    const fetchUserSettings = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
+        router.push("/welcome")
+        return
+      }
+
+      const user = session.user
+      setUserId(user.id)
+
+      const { data, error } = await supabase
+        .from('gp_settings')
+        .select('*')
+        .eq('user_id', user.id)
+        .single()
+
+      if (error || !data) {
+        setShowSetupModal(true)
+      } else {
+        setRules(data.rules || [])
+      }
+    }
+
+    fetchUserSettings()
+  }, [router])
+
+  useEffect(() => {
     setLoading(true)
     const timeout = setTimeout(() => {
-      const suggested = calculateGP(costPrice, isBTG)
+      const suggested = calculateGP(costPrice, isBTG, rules)
       setSuggestedGp(Math.round(suggested))
       setGp(Math.round(suggested))
       setLoading(false)
     }, 200)
 
     return () => clearTimeout(timeout)
-  }, [costPrice, isBTG])
+  }, [costPrice, isBTG, rules])
 
   const handleNudge = (delta: number) => {
     setGp(prev => Math.min(100, Math.max(1, prev + delta)))
   }
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    router.push("/welcome")
+  }
+
   return (
     <main className="p-4 md:p-8 max-w-2xl mx-auto">
+      <div className="flex justify-between mb-4">
+        <Button
+          onClick={() => router.push('/gp-setup')}
+          variant="outline"
+          className="border-blue-400 text-blue-600 hover:bg-blue-50"
+        >
+          Edit GP Rules
+        </Button>
+
+        <Button
+          onClick={handleLogout}
+          variant="outline"
+          className="text-red-600 border-red-400 hover:bg-red-50"
+        >
+          Logout
+        </Button>
+      </div>
+
       <Card className="shadow-md">
         <CardContent className="space-y-8 py-8">
+          {/* INPUT FIELDS */}
           <div className="space-y-4">
             <label className="block text-sm font-semibold text-gray-700">Cost Price (ex VAT):</label>
             <Input
@@ -127,6 +194,7 @@ export default function Page() {
             )}
           </div>
 
+          {/* BY THE GLASS BUTTON */}
           <div className="flex">
             <Button
               variant={isBTG ? "default" : "outline"}
@@ -137,6 +205,7 @@ export default function Page() {
             </Button>
           </div>
 
+          {/* GP CONTROLS */}
           <div className="flex flex-wrap gap-4 justify-center">
             <Button className="w-24" size="sm" onClick={() => handleNudge(-1)}>-1%</Button>
             <div className="font-semibold text-gray-700 self-center">GP: {gp}%</div>
@@ -146,6 +215,7 @@ export default function Page() {
             </Button>
           </div>
 
+          {/* PRICING TABLE */}
           <div className="pt-6">
             <div className="border-t pt-4">
               <h2 className="text-lg font-bold text-gray-800 mb-2">Price Suggestions:</h2>
@@ -191,6 +261,21 @@ export default function Page() {
 
         </CardContent>
       </Card>
+
+      {/* NEW MANDATORY RULE SETUP MODAL */}
+      {showSetupModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center">
+          <div className="bg-white rounded-lg p-6 space-y-4 shadow-lg">
+            <h2 className="text-xl font-bold text-gray-900">No GP Rules Found</h2>
+            <p className="text-gray-700">You must create a rule set to continue.</p>
+            <div className="flex justify-end gap-4 pt-4">
+              <Button onClick={() => router.push("/gp-setup")}>
+                Create Rules
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
