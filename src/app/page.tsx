@@ -36,7 +36,7 @@ export default function Page() {
   const [costPriceInput, setCostPriceInput] = useState<string>("")
   const [wineType, setWineType] = useState<string>("Dry")
   const [isBTG, setIsBTG] = useState<boolean>(false)
-  const [debug, setDebug] = useState<boolean>(false) // hidden internally
+  const [debug] = useState<boolean>(false) // hidden internally
   const [gp, setGp] = useState<number>(75)
   const [suggestedGp, setSuggestedGp] = useState<number>(75)
   const [loading, setLoading] = useState<boolean>(false)
