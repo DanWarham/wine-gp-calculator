@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { Toggle } from "@/components/ui/toggle"
 
 const VAT_RATE = 0.2
 
@@ -37,9 +36,10 @@ export default function Page() {
   const [costPriceInput, setCostPriceInput] = useState<string>("")
   const [wineType, setWineType] = useState<string>("Dry")
   const [isBTG, setIsBTG] = useState<boolean>(false)
-  const [debug, setDebug] = useState<boolean>(false)
+  const [debug, setDebug] = useState<boolean>(false) // hidden internally
   const [gp, setGp] = useState<number>(75)
   const [suggestedGp, setSuggestedGp] = useState<number>(75)
+  const [loading, setLoading] = useState<boolean>(false)
 
   const availableSizes = debug
     ? ["75", "125", "150", "175", "250", "375", "500", "Bottle"]
@@ -48,9 +48,15 @@ export default function Page() {
   const costPrice = parseFloat(costPriceInput) || 0
 
   useEffect(() => {
-    const suggested = calculateGP(costPrice, isBTG)
-    setSuggestedGp(Math.round(suggested))
-    setGp(Math.round(suggested))
+    setLoading(true)
+    const timeout = setTimeout(() => {
+      const suggested = calculateGP(costPrice, isBTG)
+      setSuggestedGp(Math.round(suggested))
+      setGp(Math.round(suggested))
+      setLoading(false)
+    }, 200) // slight delay for UX smoothness
+
+    return () => clearTimeout(timeout)
   }, [costPrice, isBTG])
 
   const handleNudge = (delta: number) => {
@@ -68,6 +74,7 @@ export default function Page() {
               inputMode="decimal"
               value={costPriceInput}
               onChange={(e) => setCostPriceInput(e.target.value)}
+              placeholder="Enter cost price"
             />
           </div>
 
@@ -84,65 +91,69 @@ export default function Page() {
             </select>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-gray-700">By the Glass?</label>
-            <Toggle pressed={isBTG} onPressedChange={() => setIsBTG(!isBTG)}>
-              Toggle
-            </Toggle>
+          <div className="flex">
+            <Button
+              variant={isBTG ? "default" : "outline"}
+              onClick={() => setIsBTG(!isBTG)}
+              className="w-full"
+            >
+              {isBTG ? "Selling By the Glass" : "Selling By the Bottle"}
+            </Button>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-gray-700">Debug Show All Sizes</label>
-            <Toggle pressed={debug} onPressedChange={() => setDebug(!debug)}>
-              Toggle
-            </Toggle>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4">
-            <Button size="sm" onClick={() => handleNudge(-1)}>-1%</Button>
-            <div className="font-semibold text-gray-700">GP: {gp}%</div>
-            <Button size="sm" onClick={() => handleNudge(1)}>+1%</Button>
-            <Button size="sm" variant="outline" onClick={() => setGp(suggestedGp)}>
+          <div className="flex flex-wrap gap-4 justify-center">
+            <Button className="w-24" size="sm" onClick={() => handleNudge(-1)}>-1%</Button>
+            <div className="font-semibold text-gray-700 self-center">GP: {gp}%</div>
+            <Button className="w-24" size="sm" onClick={() => handleNudge(1)}>+1%</Button>
+            <Button className="w-28" size="sm" variant="outline" onClick={() => setGp(suggestedGp)}>
               Reset GP
             </Button>
           </div>
 
-          <div className="space-y-2">
-            <h2 className="text-lg font-bold text-gray-800">Price Suggestions:</h2>
-            <table className="w-full table-auto border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className="border p-2 text-center">Size</th>
-                  <th className="border p-2 text-center">Price (£)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {availableSizes
-                  .filter(size => {
-                    if (debug) return true
-                    if (!isBTG) return size === "Bottle"
-                    return true
-                  })
-                  .map((size) => {
-                    const ml = size === "Bottle" ? 750 : parseInt(size)
-                    let basePrice = calculatePrice(costPrice, gp)
+          <div className="pt-6">
+            <div className="border-t pt-4">
+              <h2 className="text-lg font-bold text-gray-800 mb-2">Price Suggestions:</h2>
 
-                    if (isBTG && size === "Bottle") {
-                      basePrice = basePrice * 0.95
-                    }
+              {loading ? (
+                <div className="text-center py-10 text-gray-500">Calculating prices...</div>
+              ) : (
+                <table className="w-full table-auto border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      <th className="border p-2 text-center">Size</th>
+                      <th className="border p-2 text-center">Price (£)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {availableSizes
+                      .filter(size => {
+                        if (debug) return true
+                        if (!isBTG) return size === "Bottle"
+                        return true
+                      })
+                      .map((size) => {
+                        const ml = size === "Bottle" ? 750 : parseInt(size)
+                        let basePrice = calculatePrice(costPrice, gp)
 
-                    const price = ((basePrice / 750) * ml).toFixed(2)
+                        if (isBTG && size === "Bottle") {
+                          basePrice = basePrice * 0.95
+                        }
 
-                    return (
-                      <tr key={size} className="hover:bg-gray-100">
-                        <td className="border p-2 text-center">{size === "Bottle" ? "Bottle" : `${size}ml`}</td>
-                        <td className="border p-2 text-center">£{price}</td>
-                      </tr>
-                    )
-                  })}
-              </tbody>
-            </table>
+                        const price = ((basePrice / 750) * ml).toFixed(2)
+
+                        return (
+                          <tr key={size} className="hover:bg-gray-100">
+                            <td className="border p-2 text-center">{size === "Bottle" ? "Bottle" : `${size}ml`}</td>
+                            <td className="border p-2 text-center">£{price}</td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
+
         </CardContent>
       </Card>
     </main>
