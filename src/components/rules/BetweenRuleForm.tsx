@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input"
 import { BetweenRule } from "@/types/rules"
 import { safeParse, validateInput, sanitizeInput } from "@/lib/gpRules"
-import { ChangeEvent, useState, useEffect } from "react"
+import { ChangeEvent, useState, useEffect, useRef } from "react"
 
 export default function BetweenRuleForm({
   tempRule,
@@ -24,10 +24,21 @@ export default function BetweenRuleForm({
     start_gp: tempRule?.start_gp?.toString() ?? '',
     end_gp: tempRule?.end_gp?.toString() ?? ''
   })
+  const minInputRef = useRef<HTMLInputElement>(null)
+  const maxInputRef = useRef<HTMLInputElement>(null)
+  const startGpInputRef = useRef<HTMLInputElement>(null)
+  const endGpInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setHasError(!!errors.min || !!errors.max || !!errors.start_gp || !!errors.end_gp)
   }, [errors, setHasError])
+
+  useEffect(() => {
+    if ((tempRule?.min === undefined || tempRule?.min?.toString() === "") && minInputRef.current) {
+      minInputRef.current.focus()
+      setInputValues(prev => ({ ...prev, min: "" }))
+    }
+  }, [tempRule])
 
   const handleMinChange = (e: ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value
@@ -119,6 +130,7 @@ export default function BetweenRuleForm({
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">£</label>
         <Input
+          ref={minInputRef}
           className={`w-24 ${errors.min ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"
@@ -126,12 +138,19 @@ export default function BetweenRuleForm({
           step="0.01"
           value={inputValues.min}
           onChange={handleMinChange}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              maxInputRef.current?.focus();
+            }
+          }}
         />
       </div>
       {errors.min && <p className="text-sm text-red-500 mt-1">{errors.min}</p>}
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">£</label>
         <Input
+          ref={maxInputRef}
           className={`w-24 ${errors.max ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"
@@ -139,6 +158,12 @@ export default function BetweenRuleForm({
           step="0.01"
           value={inputValues.max}
           onChange={handleMaxChange}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              startGpInputRef.current?.focus();
+            }
+          }}
         />
       </div>
       {errors.max && <p className="text-sm text-red-500 mt-1">{errors.max}</p>}
@@ -146,6 +171,7 @@ export default function BetweenRuleForm({
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">Start GP%</label>
         <Input
+          ref={startGpInputRef}
           className={`w-24 ${errors.start_gp ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"
@@ -154,12 +180,19 @@ export default function BetweenRuleForm({
           step="0.1"
           value={inputValues.start_gp}
           onChange={handleStartGpChange}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              endGpInputRef.current?.focus();
+            }
+          }}
         />
       </div>
       {errors.start_gp && <p className="text-sm text-red-500 mt-1">{errors.start_gp}</p>}
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">End GP%</label>
         <Input
+          ref={endGpInputRef}
           className={`w-24 ${errors.end_gp ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"

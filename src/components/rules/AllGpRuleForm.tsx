@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input"
 import { AllGpRule } from "@/types/rules"
 import { safeParse, validateInput, sanitizeInput } from "@/lib/gpRules"
-import { ChangeEvent, useState, useEffect } from "react"
+import { ChangeEvent, useState, useEffect, useRef } from "react"
 
 export default function AllGpRuleForm({
   tempRule,
@@ -14,10 +14,18 @@ export default function AllGpRuleForm({
 }) {
   const [error, setError] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState<string>(tempRule?.gp?.toString() ?? '')
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setHasError(!!error)
   }, [error, setHasError])
+
+  useEffect(() => {
+    if ((tempRule?.gp === undefined || tempRule?.gp?.toString() === "") && inputRef.current) {
+      inputRef.current.focus()
+      setInputValue("")
+    }
+  }, [tempRule])
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value
@@ -47,6 +55,7 @@ export default function AllGpRuleForm({
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">GP %</label>
         <Input
+          ref={inputRef}
           className={`w-24 ${error ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"
@@ -55,6 +64,12 @@ export default function AllGpRuleForm({
           step="0.1"
           value={inputValue}
           onChange={handleChange}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              inputRef.current?.blur();
+            }
+          }}
         />
       </div>
       {error && <p className="text-sm text-red-500 mt-1">{error}</p>}

@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input"
 import { LessThanRule } from "@/types/rules"
 import { safeParse, validateInput, sanitizeInput } from "@/lib/gpRules"
-import { ChangeEvent, useState, useEffect } from "react"
+import { ChangeEvent, useState, useEffect, useRef } from "react"
 
 export default function LessThanRuleForm({
   tempRule,
@@ -17,10 +17,19 @@ export default function LessThanRuleForm({
     max: tempRule?.max?.toString() ?? '',
     gp: tempRule?.gp?.toString() ?? ''
   })
+  const maxInputRef = useRef<HTMLInputElement>(null)
+  const gpInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setHasError(!!errors.max || !!errors.gp)
   }, [errors, setHasError])
+
+  useEffect(() => {
+    if ((tempRule?.max === undefined || tempRule?.max?.toString() === "") && maxInputRef.current) {
+      maxInputRef.current.focus()
+      setInputValues(prev => ({ ...prev, max: "" }))
+    }
+  }, [tempRule])
 
   const handleMaxChange = (e: ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value
@@ -70,6 +79,7 @@ export default function LessThanRuleForm({
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">£</label>
         <Input
+          ref={maxInputRef}
           className={`w-24 ${errors.max ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"
@@ -77,6 +87,12 @@ export default function LessThanRuleForm({
           step="0.01"
           value={inputValues.max}
           onChange={handleMaxChange}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              gpInputRef.current?.focus();
+            }
+          }}
         />
       </div>
       {errors.max && <p className="text-sm text-red-500 mt-1">{errors.max}</p>}
@@ -85,6 +101,7 @@ export default function LessThanRuleForm({
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">GP %</label>
         <Input
+          ref={gpInputRef}
           className={`w-24 ${errors.gp ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"

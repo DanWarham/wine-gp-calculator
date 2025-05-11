@@ -1,7 +1,7 @@
 import { Input } from "@/components/ui/input"
 import { GreaterThanRule } from "@/types/rules"
 import { safeParse, validateInput, sanitizeInput } from "@/lib/gpRules"
-import { ChangeEvent, useState, useEffect } from "react"
+import { ChangeEvent, useState, useEffect, useRef } from "react"
 
 export default function GreaterThanRuleForm({
   tempRule,
@@ -17,10 +17,19 @@ export default function GreaterThanRuleForm({
     min: tempRule?.min?.toString() ?? '',
     gp: tempRule?.gp?.toString() ?? ''
   })
+  const minInputRef = useRef<HTMLInputElement>(null)
+  const gpInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setHasError(!!errors.min || !!errors.gp)
   }, [errors, setHasError])
+
+  useEffect(() => {
+    if ((tempRule?.min === undefined || tempRule?.min?.toString() === "") && minInputRef.current) {
+      minInputRef.current.focus()
+      setInputValues(prev => ({ ...prev, min: "" }))
+    }
+  }, [tempRule])
 
   const handleMinChange = (e: ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value
@@ -70,6 +79,7 @@ export default function GreaterThanRuleForm({
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">£</label>
         <Input
+          ref={minInputRef}
           className={`w-24 ${errors.min ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"
@@ -77,6 +87,12 @@ export default function GreaterThanRuleForm({
           step="0.01"
           value={inputValues.min}
           onChange={handleMinChange}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+              e.preventDefault();
+              gpInputRef.current?.focus();
+            }
+          }}
         />
       </div>
       {errors.min && <p className="text-sm text-red-500 mt-1">{errors.min}</p>}
@@ -84,6 +100,7 @@ export default function GreaterThanRuleForm({
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium">GP %</label>
         <Input
+          ref={gpInputRef}
           className={`w-24 ${errors.gp ? 'border-red-500' : ''}`}
           type="text"
           inputMode="decimal"
