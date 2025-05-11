@@ -72,7 +72,7 @@ export default function CustomRuleSetupPage() {
       return
     }
 
-    let rulesToValidate = [...betweenRules]
+    const rulesToValidate = [...betweenRules]
 
     if (rulesToValidate.length === 0) {
       rulesToValidate.push({

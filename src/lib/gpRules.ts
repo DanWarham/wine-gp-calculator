@@ -1,4 +1,4 @@
-import { Rule, LessThanRule, GreaterThanRule, BetweenRule, AllGpRule } from '@/types/rules'
+import { Rule, LessThanRule, GreaterThanRule, BetweenRule } from '@/types/rules'
 
 // Sanitizes input to only allow valid characters
 export const sanitizeInput = (value: string, isGpField: boolean = false): string => {

@@ -4,7 +4,6 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import AllGpRuleForm from '@/components/rules/AllGpRuleForm'
 import GreaterThanRuleForm from '@/components/rules/GreaterThanRuleForm'
@@ -14,7 +13,6 @@ import { Dialog } from '@headlessui/react'
 
 import {
   Rule,
-  BaseRule,
   LessThanRule,
   GreaterThanRule,
   BetweenRule,
@@ -59,16 +57,6 @@ export default function GPSetupPage() {
     fetchRules()
   }, [router])
 
-  const safeParse = (value: string): number | undefined => {
-    const parsed = parseFloat(value)
-    return isNaN(parsed) ? undefined : parsed
-  }
-  
-  const safeDisplay = (value: number | undefined): string => {
-    return typeof value === 'number' && !isNaN(value) ? String(value) : ''
-  }
-  
-
   const startEditing = (index: number) => {
     setEditingIndex(index)
     setTempRule({ ...rules[index] })
@@ -77,10 +65,6 @@ export default function GPSetupPage() {
   const cancelEditing = () => {
     setEditingIndex(null)
     setTempRule(null)
-  }
-
-  const validateNumberField = (value: unknown) => {
-    return typeof value === 'number' && !isNaN(value)
   }
 
   // Helper to detect overlapping rules
@@ -163,7 +147,7 @@ export default function GPSetupPage() {
     const lessThan = rules.find(r => r.type === 'less_than')
     const greaterThan = rules.find(r => r.type === 'greater_than')
     const allGp = rules.find(r => r.type === 'all_gp')
-    const between = rules.filter(r => r.type === 'between').sort((a, b) => (a as any).min - (b as any).min)
+    const between = rules.filter(r => r.type === 'between').sort((a, b) => (a as BetweenRule).min - (b as BetweenRule).min)
     const result: Rule[] = []
     if (lessThan) result.push(lessThan)
     result.push(...between)
@@ -180,7 +164,7 @@ export default function GPSetupPage() {
     const greaterThan = rules.find(r => r.type === 'greater_than') as GreaterThanRule | undefined
     // Find the first available gap between rules
     let prevMax = lessThan ? lessThan.max : 0
-    let nextMin = greaterThan ? greaterThan.min : Infinity
+    const nextMin = greaterThan ? greaterThan.min : Infinity
     // Find a gap between existing between rules
     let insertIndex = rules.findIndex(r => r.type === 'greater_than')
     let newMin = prevMax
