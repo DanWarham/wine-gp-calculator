@@ -294,8 +294,8 @@ export default function Page() {
                           price = Math.round(price)
                           displayPrice = `£${price}`
                         } else {
-                          // Round to nearest 10p
-                          price = Math.round(price * 10) / 10
+                          // Round to nearest 50p
+                          price = Math.round(price * 2) / 2
                           displayPrice = `£${price.toFixed(2)}`
                         }
 
