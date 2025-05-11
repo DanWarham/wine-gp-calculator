@@ -95,7 +95,7 @@ export default function GPSetupPage() {
   // Modified saveEdit to check for overlaps
   const saveEdit = () => {
     if (!tempRule) return
-    let ruleToSave = { ...tempRule } as Rule
+    const ruleToSave = { ...tempRule } as Rule
     const updated = [...rules]
     updated[editingIndex!] = ruleToSave
     // Check for overlaps
@@ -322,7 +322,7 @@ export default function GPSetupPage() {
     let rulesToCheck = rules;
     if (editingIndex !== null && tempRule) {
       rulesToCheck = [...rules];
-      let ruleToSave = { ...tempRule } as Rule;
+      const ruleToSave = { ...tempRule } as Rule;
       rulesToCheck[editingIndex] = ruleToSave;
     }
     // Check for overlaps
@@ -484,28 +484,28 @@ export default function GPSetupPage() {
                   {rule.type === 'less_than' && (
                     <LessThanRuleForm
                       tempRule={tempRule as Partial<LessThanRule>}
-                      setTempRule={setTempRule as any}
+                      setTempRule={setTempRule}
                       setHasError={setFormHasError}
                     />
                   )}
                   {rule.type === 'between' && (
                     <BetweenRuleForm
                       tempRule={tempRule as Partial<BetweenRule>}
-                      setTempRule={setTempRule as any}
+                      setTempRule={setTempRule}
                       setHasError={setFormHasError}
                     />
                   )}
                   {rule.type === 'greater_than' && (
                     <GreaterThanRuleForm
                       tempRule={tempRule as Partial<GreaterThanRule>}
-                      setTempRule={setTempRule as any}
+                      setTempRule={setTempRule}
                       setHasError={setFormHasError}
                     />
                   )}
                   {rule.type === 'all_gp' && (
                     <AllGpRuleForm
                       tempRule={tempRule as Partial<AllGpRule>}
-                      setTempRule={setTempRule as any}
+                      setTempRule={setTempRule}
                       setHasError={setFormHasError}
                     />
                   )}
