@@ -286,12 +286,23 @@ export default function Page() {
                           basePrice = basePrice * 0.95
                         }
 
-                        const price = ((basePrice / baseBottleMl) * ml).toFixed(2)
+                        let price = (basePrice / baseBottleMl) * ml
+                        let displayPrice: string
+
+                        if (size === "Bottle") {
+                          // Round to nearest pound
+                          price = Math.round(price)
+                          displayPrice = `£${price}`
+                        } else {
+                          // Round to nearest 10p
+                          price = Math.round(price * 10) / 10
+                          displayPrice = `£${price.toFixed(2)}`
+                        }
 
                         return (
                           <tr key={size} className="hover:bg-gray-100">
                             <td className="border p-2 text-center">{size === "Bottle" ? bottleLabel : `${size}ml`}</td>
-                            <td className="border p-2 text-center">£{price}</td>
+                            <td className="border p-2 text-center">{displayPrice}</td>
                           </tr>
                         )
                       })}
