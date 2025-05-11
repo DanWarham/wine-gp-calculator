@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
+import { sanitizeInput, validateInput } from '@/lib/gpRules'
 
 interface BaseRule {
   type: 'less_than' | 'between' | 'greater_than' | 'all_gp'
@@ -50,6 +51,7 @@ export default function Page() {
   const [rules, setRules] = useState<Rule[]>([])
   const [loadingSession, setLoadingSession] = useState(true)
   const [showSetupModal, setShowSetupModal] = useState(false)
+  const [costPriceError, setCostPriceError] = useState<string | null>(null)
 
   const VAT_RATE = 0.2
 
@@ -183,10 +185,21 @@ export default function Page() {
             <Input
               type="text"
               inputMode="decimal"
+              className={costPriceError ? 'border-red-500' : ''}
               value={costPriceInput}
-              onChange={(e) => setCostPriceInput(e.target.value)}
+              onChange={(e) => {
+                const rawValue = e.target.value
+                const sanitized = sanitizeInput(rawValue, false)
+                if (!validateInput(sanitized, false)) {
+                  setCostPriceError('Please enter a non-negative number')
+                } else {
+                  setCostPriceError(null)
+                }
+                setCostPriceInput(sanitized)
+              }}
               placeholder="Enter cost price"
             />
+            {costPriceError && <p className="text-sm text-red-500 mt-1">{costPriceError}</p>}
           </div>
 
           <div className="space-y-4">
