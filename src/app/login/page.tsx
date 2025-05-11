@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState<string>("")
   const [loading, setLoading] = useState<boolean>(false)
   const [fadeOut, setFadeOut] = useState<boolean>(false)
+  const [showPassword, setShowPassword] = useState<boolean>(false)
 
   const handleLogin = async () => {
     setLoading(true)
@@ -33,7 +34,7 @@ export default function LoginPage() {
         .single()
 
       if (lookupError || !data) {
-        showToast("❌ Email not found. Would you like to register?", "error")
+        showToast("❌ Email not found", "error")
       } else {
         showToast("❌ Incorrect password. Please try again.", "error")
       }
@@ -70,14 +71,23 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 relative">
             <label className="text-sm font-semibold text-gray-700">Password</label>
             <Input
-              type="password"
+              type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
             />
+            <button
+              type="button"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              onClick={() => setShowPassword(v => !v)}
+              className="absolute right-2 top-8 text-gray-500 hover:text-gray-700 focus:outline-none"
+              tabIndex={0}
+            >
+              {showPassword ? '🙈' : '👁️'}
+            </button>
           </div>
 
           <Button
