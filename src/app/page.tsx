@@ -58,7 +58,7 @@ export default function Page() {
   const WINE_SIZES: Record<string, string[]> = {
     Dry: ["125", "175", "250", "500", "Bottle"],
     Sweet: ["75", "Bottle"],
-    Sparkling: ["150", "Bottle"]
+    Sparkling: ["125", "150", "Bottle"]
   }
 
   const availableSizes = WINE_SIZES[wineType] || []
