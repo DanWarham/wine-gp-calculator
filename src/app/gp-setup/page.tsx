@@ -364,6 +364,17 @@ export default function GPSetupPage() {
 
   return (
     <main className="p-6 max-w-2xl mx-auto flex flex-col justify-center min-h-screen">
+      <div className="flex flex-wrap gap-2 mb-4">
+        <Button variant="outline" onClick={() => router.push('/')}>
+          Calculator
+        </Button>
+        <Button variant="secondary" disabled>
+          Pricing Rules
+        </Button>
+        <Button variant="outline" onClick={() => router.push('/settings')}>
+          Settings
+        </Button>
+      </div>
       <Card className="shadow-md">
         <CardContent className="space-y-8 py-8">
           <h1 className="text-2xl font-bold text-center mb-6">Setup Your GP Rules</h1>

@@ -51,8 +51,9 @@ Supabase Auth + Postgres (public.gp_settings, auth.users)
 | `/welcome` | Public entry (Login / Register) | |
 | `/login` | Email/password sign-in | |
 | `/signup` | Email/password registration | Open signup |
-| `/` | Wine price calculator | Client session check |
-| `/gp-setup` | Pricing rule editor | Primary rule UX |
+| `/` | Wine price calculator | Loads rules + pricing policy |
+| `/gp-setup` | Pricing Rules editor | GP bands; separate from Settings |
+| `/settings` | Pricing Policy settings | VAT, BTG discount, rounding |
 | `/gp-setup/custom` | Alternate multi-step wizard | **Unlinked/orphaned** — reachable by URL only; not intended architecture |
 
 Auth protection is per-page `supabase.auth.getSession()` only.
@@ -107,14 +108,22 @@ sellingPriceIncVat =
 (1 - gp / 100)
 ```
 
-### Pricing policy (Stage-2 defaults; not yet user-configurable UI)
+### Pricing policy (persisted; Stage 3B)
 
-| Field | Default |
-|-------|---------|
-| `vatRate` | `0.2` (20%) |
-| `btgBottleDiscount` | `0.05` (5%) |
-| `bottleRoundingIncrement` | `1` (£1) |
-| `pourRoundingIncrement` | `0.5` (£0.50) |
+Defaults (DB column defaults + `DEFAULT_PRICING_POLICY` for tests/provisioning semantics):
+
+| Field | Default | Stored as |
+|-------|---------|-----------|
+| VAT rate | 20% | `vat_rate` `0.20` |
+| BTG bottle discount | 5% | `btg_bottle_discount` `0.05` |
+| Bottle rounding | £1.00 | `bottle_rounding_increment` `1.00` |
+| Pour/glass rounding | £0.50 | `pour_rounding_increment` `0.50` |
+
+- Table: `public.pricing_policy` (one row per user; FK to `auth.users`).
+- Settings UI: `/settings` (separate from Pricing Rules `/gp-setup`).
+- Persistence helper: `src/lib/pricingPolicyStore.ts` (`getOrCreatePricingPolicy` / `savePricingPolicy`).
+- Calculator loads policy after auth and passes it into `priceWithGp`; does **not** use `DEFAULT_PRICING_POLICY` as operational user policy.
+- Pure engine in `src/lib/pricing/` unchanged in responsibility.
 
 ### BTG, scaling, rounding
 
@@ -122,18 +131,17 @@ sellingPriceIncVat =
 |------|-----------|
 | BTG bottle | Discount applies only to displayed full-bottle line |
 | Pours | Scale from **undiscounted** bottle-equivalent raw price |
-| Rounding | `roundToIncrement` with policy increments |
+| Rounding | `roundToIncrement` with persisted policy increments |
 
 Bottle sizes: 375 / 750 / 1500 / custom positive ml. **Invalid custom volume fails** in the pricing domain (no silent 750ml fallback).
 
-Pour catalogues remain hardcoded `WINE_SIZES` (Sparkling includes 125ml and 150ml) until Stage 3.
+Pour catalogues remain hardcoded `WINE_SIZES` (Sparkling includes 125ml and 150ml) until Stage 3C.
 
-### Remaining Stage-3 gaps (not Stage-2 defects)
+### Remaining Stage-3 gaps
 
-- User-configurable pricing-policy persistence/UI
-- User-configurable serving sizes
+- User-configurable serving sizes (Stage 3C)
 - Pricing configuration versioning
-- Setup-page `validateRules` still duplicated vs `gpRules.ts` (editor UX; engine has `validateRuleSetForPricing`)
+- Setup-page overlap/gap UX helpers still local to `/gp-setup` (engine has `validateRuleSetForPricing`)
 
 ---
 
@@ -176,9 +184,10 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | Entity | Role |
 |--------|------|
 | `auth.users` | Supabase Auth identities |
-| `public.gp_settings` | One JSONB rule document per user |
+| `public.gp_settings` | One JSONB GP rule document per user |
+| `public.pricing_policy` | One commercial pricing-policy row per user |
 
-**No** sales, scenario, import, or pricing-version tables.
+**No** sales, scenario, import, serving-size, or pricing-version tables.
 
 ### `public.gp_settings`
 
@@ -190,7 +199,21 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `created_at` | `timestamp` | Default `now()` |
 
 - **RLS:** enabled; policy `"Policy with security definer functions"` allows ALL where `auth.uid() = user_id` (USING + WITH CHECK).
-- **Migrations (Stage 3A):** source-controlled baseline at `supabase/migrations/20261019134900_baseline_current_schema.sql`. Stage 3A did **not** alter the live application schema or data. Remote history still needs `migration repair --status applied 20261019134900` (CLI auth required; see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
+
+### `public.pricing_policy` (Stage 3B)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `uuid` PK | |
+| `user_id` | `uuid` UNIQUE | FK → `auth.users` ON DELETE CASCADE |
+| `vat_rate` | `numeric` | Default `0.20` |
+| `btg_bottle_discount` | `numeric` | Default `0.05`; must be `< 1` |
+| `bottle_rounding_increment` | `numeric` | Default `1.00`; must be `> 0` |
+| `pour_rounding_increment` | `numeric` | Default `0.50`; must be `> 0` |
+| `created_at` / `updated_at` | `timestamptz` | |
+
+- **RLS:** select/insert/update own row for `authenticated` only.
+- **Migrations:** baseline `20261019134900` + additive `20261019223922_create_pricing_policy` (applied locally and remotely).
 
 Row counts are volatile point-in-time observations and are not architectural facts.
 
@@ -235,7 +258,7 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 ## Database Development Workflow
 
 - Source-controlled Supabase migrations exist under `supabase/migrations/`.
-- Stage 3A established a baseline of the **existing** `gp_settings` schema (no schema change).
+- Stage 3A baselined `gp_settings`; Stage 3B added `pricing_policy` via additive migration + `db push`.
 - Future application schema changes are **migration-first** (see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
 - Authority: migrations = intended/applied evolution; live Supabase = deployed state; this doc / `DATA_MODEL.md` = human-readable.
 - Dashboard-only schema edits should not be normal practice; reconcile any emergency manual changes into migrations.
@@ -267,8 +290,8 @@ Prioritised for orientation (not exhaustive assessment dump):
 3. Unused emoji-prefixed rule form duplicates.
 4. Broken `public.users` login lookup.
 5. Hardcoded Supabase configuration.
-6. Remote migration history may still need baseline repair (`migration repair --status applied 20261019134900`) if not yet completed after Stage 3A.
-7. Persisted rule sets that historically relied on silent 70% gap behaviour will now surface explicit calculator errors until rules are fixed.
+6. Persisted rule sets that historically relied on silent 70% gap behaviour will now surface explicit calculator errors until rules are fixed.
+7. Serving sizes still hardcoded (`WINE_SIZES`) until Stage 3C.
 
 ---
 
@@ -284,9 +307,9 @@ Prioritised for orientation (not exhaustive assessment dump):
 | Full-precision GP through final rounding | **Implemented** |
 | Explicit failure on uncovered rules | **Implemented** |
 | Automated financial tests | **Implemented** (Vitest) |
-| Explicit pricing-policy type + defaults | **Implemented** (UI config Stage 3) |
-| User-configurable pricing policy UI | **Not implemented** |
-| User-configurable serving sizes | **Not implemented** (hardcoded `WINE_SIZES`) |
+| Explicit pricing-policy type + defaults | **Implemented** |
+| User-configurable pricing policy UI + persistence | **Implemented** (`/settings`, `pricing_policy`) |
+| User-configurable serving sizes | **Not implemented** (hardcoded `WINE_SIZES`; Stage 3C) |
 | Pricing rule/policy versioning | **Not implemented** |
 | Sales import | **Not implemented** |
 | Canonical sales model | **Not implemented** |

@@ -51,21 +51,21 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 | **Gross Profit** | Not shown as a £ amount; only GP % is used. | UI shows % only |
 | **Cost price** | Purchase cost **excluding VAT**. Label: “Cost Price (ex VAT)”. | `src/app/page.tsx` |
 | **Selling price** | Customer-facing price in £, derived from cost + VAT treatment + GP. | `src/lib/pricing` |
-| **VAT / tax** | Default policy `vatRate = 0.2` (20%). Applied inside the selling-price formula. | `DEFAULT_PRICING_POLICY` |
+| **VAT / tax** | User policy `vatRate` (default `0.2` = 20%). Applied inside the selling-price formula. | `pricing_policy` / Settings |
 | **Wine type** | `Dry`, `Sweet` (UI: “Sweet/Fortified”), or `Sparkling`. Controls which pour sizes are offered. | `WINE_SIZES` in `src/app/page.tsx` |
 | **Bottle pricing** | Price for a full bottle (Half 375ml / Bottle 750ml / Magnum 1500ml / Other custom ml). Rounded to nearest £. | Home page |
 | **Glass / pour pricing** | ml-based servings when “Selling By the Glass”. Rounded to nearest 50p. | Home page |
 | **Pour sizes** | Dry: 125, 175, 250, 500 ml + Bottle. Sweet: 75 ml + Bottle. Sparkling: 150 ml + Bottle. | `WINE_SIZES` |
-| **BTG (By The Glass)** | Toggle `isBTG`. When true, shows pour rows and applies a **5% reduction** to the bottle line (`basePrice * 0.95`). | Home page |
+| **BTG (By The Glass)** | Toggle `isBTG`. When true, shows pour rows and applies the user’s BTG bottle discount (default 5%) to the bottle line only. | Home page + Settings |
 | **Pricing rules** | JSON rules mapping cost bands → GP %. Types: `all_gp`, `less_than`, `between`, `greater_than`. | `src/types/rules.ts` |
 | **Universal GP** | Single `all_gp` rule: one GP for all costs. | Setup UI |
 | **Custom rule set** | Contiguous cost bands: typically one `less_than`, zero+ `between`, one `greater_than`. Gaps/overlaps are validated. | `src/app/gp-setup/page.tsx` |
 
 ### Assumptions (not proven by code)
 
-- Users are primarily **UK** venues (default 20% VAT and £ display). Policy is typed for future configuration; Stage-2 UI still uses defaults.
+- Users are primarily **UK** venues (default 20% VAT and £ display). Pricing policy is user-configurable via `/settings` (Stage 3B).
 - “GP” here is the hospitality trade meaning: margin as a percentage of **selling price**, rearranged into the formula below — not markup-on-cost.
-- The 5% bottle discount when BTG is a commercial convention (bottle cheaper than equivalent glass pours); rationale is not documented in-repo.
+- The BTG bottle discount is a commercial convention (bottle cheaper than equivalent glass pours); default 5%, configurable in Settings.
 
 ---
 
@@ -110,11 +110,11 @@ sellingPriceIncVat =
 (1 - gp / 100)
 ```
 
-Policy defaults (`DEFAULT_PRICING_POLICY`): VAT 20%, BTG bottle discount 5%, bottle round £1, pour round £0.50.
+Product defaults (`DEFAULT_PRICING_POLICY` / DB column defaults): VAT 20%, BTG bottle discount 5%, bottle round £1, pour round £0.50. Persisted per user in `public.pricing_policy`; Settings at `/settings`.
 
 - BTG discount applies only to the displayed full-bottle line.
 - Pours scale from the **undiscounted** bottle-equivalent raw price.
-- Commercial rounding via `roundToIncrement`.
+- Commercial rounding via `roundToIncrement` using the loaded policy.
 - `gpOverride` prices without re-resolving rules (manual nudge path).
 
 ---
@@ -123,10 +123,11 @@ Policy defaults (`DEFAULT_PRICING_POLICY`): VAT 20%, BTG bottle discount 5%, bot
 
 **Source:** `src/app/page.tsx`
 
-1. Resolve suggested GP via `resolveTargetGp` (full precision into state; display may format).
-2. User may nudge GP ±1% while `0 < GP < 100`.
-3. Each visible size row calls `priceWithGp` with active GP and `DEFAULT_PRICING_POLICY`.
-4. Errors (gap, invalid bottle size, invalid GP) surface as messages — not invented prices.
+1. After auth, load/ensure Pricing Policy via `getOrCreatePricingPolicy` and load GP rules from `gp_settings`.
+2. Resolve suggested GP via `resolveTargetGp` (full precision into state; display may format).
+3. User may nudge GP ±1% while `0 < GP < 100`.
+4. Each visible size row calls `priceWithGp` with active GP and the **persisted** pricing policy.
+5. Errors (policy load, gap, invalid bottle size, invalid GP) surface as messages — not invented prices.
 
 **Bottle-only mode:** when `!isBTG`, only the bottle row is shown.
 
@@ -333,7 +334,8 @@ Supported by the repository / live DB (not invented):
 | Financial Vitest suite | Implemented |
 | GP rule editor with gap/overlap UX | Implemented on `/gp-setup` |
 | Custom multi-step wizard | Code exists; unlinked orphan |
-| User-configurable policy / serving sizes UI | Not implemented (Stage 3) |
+| User-configurable pricing policy UI | Implemented (`/settings`, Stage 3B) |
+| User-configurable serving sizes UI | Not implemented (Stage 3C) |
 | Env-based configuration | Not implemented |
 | API layer | Not present (by design currently) |
 | Multi-tenant / org features | Not present |

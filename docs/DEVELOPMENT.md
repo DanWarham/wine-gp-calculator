@@ -96,7 +96,7 @@ If migrations and live state disagree, investigate the drift before changing eit
 | Baseline file | `20261019134900_baseline_current_schema.sql` |
 | What it represents | Existing `public.gp_settings` (columns, constraints, RLS, grants, comment) |
 | Live schema change in 3A | **None** — baseline describes reality; it must not be re-executed against the existing live DB |
-| Remote history | **Pending operator step:** mark baseline applied via repair (history only), not `db push` of the baseline DDL. As of Stage 3A verification, remote `list_migrations` was still `[]`. |
+| Remote history | Baseline `20261019134900` marked applied via `migration repair`; Stage 3B `20261019223922_create_pricing_policy` applied with `db push`. |
 
 Application expectations for schema (unchanged by Stage 3A):
 
@@ -135,10 +135,14 @@ npx supabase migration repair --status applied <timestamp> --project-ref jcylgbt
 npx supabase db push
 
 # Compare local vs remote migration status
-npx supabase migration list --project-ref jcylgbtifwpcjncnnfok
+npx supabase migration list
 ```
 
 Requires Supabase CLI auth (`npx supabase login` or `SUPABASE_ACCESS_TOKEN`). Linking may also require the database password.
+
+### Stage 3B note
+
+`pricing_policy` is owned per user. New authenticated users are provisioned by `getOrCreatePricingPolicy` in `src/lib/pricingPolicyStore.ts` (no `auth.users` trigger). Existing users were seeded in the Stage 3B migration with the commercial defaults (VAT 20%, BTG 5%, bottle £1, pour £0.50).
 
 After schema changes, update [`DATA_MODEL.md`](./DATA_MODEL.md) / [`06-current-implementation.md`](./06-current-implementation.md) and verify client queries still match.
 

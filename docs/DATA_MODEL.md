@@ -2,7 +2,7 @@
 
 Documents persistent storage (Supabase) and important in-memory / TypeScript domain structures.
 
-**Schema sources (Stage 3A):**
+**Schema sources:**
 
 | Authority | Role |
 |-----------|------|
@@ -12,11 +12,16 @@ Documents persistent storage (Supabase) and important in-memory / TypeScript dom
 
 If migrations and live state disagree, **investigate the drift** — do not silently declare either correct without verification.
 
-**Baseline:** `supabase/migrations/20261019134900_baseline_current_schema.sql` represents the existing application schema (`public.gp_settings` + RLS/grants). Stage 3A did **not** alter that live schema.
+**Migrations:**
+
+| File | Role |
+|------|------|
+| `20261019134900_baseline_current_schema.sql` | Baseline of pre-existing `gp_settings` (Stage 3A; did not alter live schema) |
+| `20261019223922_create_pricing_policy.sql` | Additive `pricing_policy` table + RLS + seed (Stage 3B) |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting schema/type detail. If sources materially disagree, investigate rather than silently reconciling them.
 
-Only `auth.users` and `public.gp_settings` exist today. Sales, scenario, and versioning entities described as intended architecture in `05` are **not** implemented.
+Application tables today: `public.gp_settings`, `public.pricing_policy` (plus Supabase-managed `auth.users`). Sales, scenario, serving-size persistence, and versioning entities from `05` are **not** implemented.
 
 ---
 
@@ -25,11 +30,22 @@ Only `auth.users` and `public.gp_settings` exist today. Sales, scenario, and ver
 ```mermaid
 erDiagram
   auth_users ||--o| gp_settings : "owns"
+  auth_users ||--o| pricing_policy : "owns"
   gp_settings {
     uuid id PK
     uuid user_id UK "not null"
     jsonb rules "nullable"
     timestamp created_at
+  }
+  pricing_policy {
+    uuid id PK
+    uuid user_id UK "FK auth.users"
+    numeric vat_rate
+    numeric btg_bottle_discount
+    numeric bottle_rounding_increment
+    numeric pour_rounding_increment
+    timestamptz created_at
+    timestamptz updated_at
   }
   auth_users {
     uuid id PK
@@ -38,7 +54,9 @@ erDiagram
 ```
 
 Logical relationship: `gp_settings.user_id` corresponds to `auth.users.id`.  
-**Fact:** At inspection time, **no foreign-key constraint** existed from `gp_settings.user_id` to `auth.users`. Enforcement is application + RLS.
+**Fact:** **No foreign-key constraint** from `gp_settings.user_id` to `auth.users` (legacy; unchanged in Stage 3B). Enforcement is application + RLS.
+
+`pricing_policy.user_id` **does** have `REFERENCES auth.users(id) ON DELETE CASCADE` plus `UNIQUE(user_id)`.
 
 ---
 
@@ -83,6 +101,59 @@ Authenticated users can only CRUD their own row. Anon users cannot access rows u
 |------|--------|
 | First-time save (`gp-setup`) | `select` by `user_id` → if missing, `insert([{ user_id, rules }])` else `update({ rules })` |
 | Custom wizard | `upsert({ user_id, rules }, { onConflict: 'user_id' })` |
+
+---
+
+### `public.pricing_policy`
+
+| | |
+|--|--|
+| **Purpose** | Store each user’s current commercial pricing policy (VAT, BTG bottle discount, rounding) |
+| **Table comment (DB)** | “Current commercial pricing policy per user (VAT, BTG bottle discount, rounding).” |
+| **RLS** | Enabled |
+| **Source in app** | `src/lib/pricingPolicyStore.ts`; Settings `/settings`; Calculator loads via `getOrCreatePricingPolicy` |
+
+#### Columns
+
+| Column | Type | Nullable | Default | Semantics |
+|--------|------|----------|---------|-----------|
+| `id` | `uuid` | NO | `gen_random_uuid()` | Primary key |
+| `user_id` | `uuid` | NO | — | **UNIQUE**; FK → `auth.users(id)` ON DELETE CASCADE |
+| `vat_rate` | `numeric` | NO | `0.20` | Decimal fraction (`0.20` = 20% VAT) |
+| `btg_bottle_discount` | `numeric` | NO | `0.05` | Decimal fraction (`0.05` = 5%); bottle line only when BTG |
+| `bottle_rounding_increment` | `numeric` | NO | `1.00` | £ increment for bottle prices |
+| `pour_rounding_increment` | `numeric` | NO | `0.50` | £ increment for pour/glass prices |
+| `created_at` | `timestamptz` | NO | `now()` | |
+| `updated_at` | `timestamptz` | NO | `now()` | Set explicitly by app on save |
+
+#### Constraints
+
+| Name | Definition |
+|------|------------|
+| `pricing_policy_pkey` | PRIMARY KEY (`id`) |
+| `pricing_policy_user_id_key` | UNIQUE (`user_id`) |
+| `pricing_policy_user_id_fkey` | FK → `auth.users(id)` ON DELETE CASCADE |
+| `pricing_policy_vat_rate_check` | `vat_rate >= 0` |
+| `pricing_policy_btg_bottle_discount_check` | `btg_bottle_discount >= 0 AND btg_bottle_discount < 1` |
+| `pricing_policy_bottle_rounding_increment_check` | `bottle_rounding_increment > 0` |
+| `pricing_policy_pour_rounding_increment_check` | `pour_rounding_increment > 0` |
+
+#### RLS policies
+
+| Policy | Command | Role | Rule |
+|--------|---------|------|------|
+| `pricing_policy_select_own` | SELECT | authenticated | `auth.uid() = user_id` |
+| `pricing_policy_insert_own` | INSERT | authenticated | `auth.uid() = user_id` |
+| `pricing_policy_update_own` | UPDATE | authenticated | `auth.uid() = user_id` |
+
+No DELETE policy (app does not delete policies). Anon has no permissive policy; RLS prevents anonymous row access.
+
+#### Provisioning
+
+- **Existing users:** seeded in migration `20261019223922` via `INSERT … SELECT id FROM auth.users ON CONFLICT DO NOTHING` (column defaults = Stage 2 commercial defaults).
+- **New users:** `getOrCreatePricingPolicy(userId)` selects; if missing, inserts `{ user_id }` only (DB defaults); concurrent unique violation → re-select. Load/provision errors are returned — calculator does **not** silently use in-memory defaults.
+
+UI percentages (`20`) convert to rates (`0.20`) in `src/lib/pricingPolicyStore.ts` (`percentToRate` / `rateToPercent`).
 
 ---
 
@@ -194,7 +265,8 @@ Prefer importing from `@/types/rules` for new work.
 
 | From | To | Cardinality | Mechanism |
 |------|----|-------------|-----------|
-| Auth user | `gp_settings` | 0..1 | `user_id` unique + app logic |
+| Auth user | `gp_settings` | 0..1 | `user_id` unique + app logic (no FK) |
+| Auth user | `pricing_policy` | 0..1 | `user_id` unique + FK CASCADE + app provisioning |
 | `gp_settings.rules` | Rule objects | 0..n in JSON array | Application convention |
 
-No other application entities (wines, venues, price history, audit of calculations) exist in this codebase or public schema.
+Serving sizes remain hardcoded in the calculator UI until Stage 3C. No sales/scenario entities yet.

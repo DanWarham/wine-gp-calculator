@@ -9,12 +9,13 @@ import { Card, CardContent } from "@/components/ui/card"
 import { sanitizeInput, validateInput } from '@/lib/gpRules'
 import type { Rule } from '@/types/rules'
 import {
-  DEFAULT_PRICING_POLICY,
   isValidGp,
   isValidPositiveMl,
   priceWithGp,
   resolveTargetGp,
+  type PricingPolicy,
 } from '@/lib/pricing'
+import { getOrCreatePricingPolicy } from '@/lib/pricingPolicyStore'
 
 /** Display-only GP formatting. Does not alter the value passed into pricing. */
 function formatGpDisplay(gp: number): string {
@@ -47,6 +48,8 @@ export default function Page() {
   const [gpError, setGpError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [rules, setRules] = useState<Rule[]>([])
+  const [pricingPolicy, setPricingPolicy] = useState<PricingPolicy | null>(null)
+  const [policyError, setPolicyError] = useState<string | null>(null)
   const [loadingSession, setLoadingSession] = useState(true)
   const [showSetupModal, setShowSetupModal] = useState(false)
   const [costPriceError, setCostPriceError] = useState<string | null>(null)
@@ -81,6 +84,16 @@ export default function Page() {
       }
 
       const user = session.user
+
+      const policyResult = await getOrCreatePricingPolicy(user.id)
+      if (!policyResult.ok) {
+        setPolicyError(policyResult.error)
+        setPricingPolicy(null)
+      } else {
+        setPolicyError(null)
+        setPricingPolicy(policyResult.policy)
+      }
+
       const { data, error } = await supabase
         .from('gp_settings')
         .select('*')
@@ -154,19 +167,54 @@ export default function Page() {
   }
 
   if (loadingSession) {
-    return null
+    return (
+      <main className="p-4 md:p-8 max-w-2xl mx-auto">
+        <p className="text-gray-500">Loading configuration…</p>
+      </main>
+    )
+  }
+
+  if (policyError || !pricingPolicy) {
+    return (
+      <main className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
+        <p className="text-red-600">
+          {policyError ?? 'Pricing policy is not available. Prices cannot be calculated.'}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => router.push('/settings')}>
+            Open Settings
+          </Button>
+          <Button
+            onClick={handleLogout}
+            variant="outline"
+            className="text-red-600 border-red-400 hover:bg-red-50"
+          >
+            Logout
+          </Button>
+        </div>
+      </main>
+    )
   }
 
   return (
     <main className="p-4 md:p-8 max-w-2xl mx-auto">
-      <div className="flex justify-between mb-4">
-        <Button
-          onClick={() => router.push('/gp-setup')}
-          variant="outline"
-          className="border-blue-400 text-blue-600 hover:bg-blue-50"
-        >
-          Edit GP Rules
-        </Button>
+      <div className="flex flex-wrap gap-2 justify-between mb-4">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => router.push('/gp-setup')}
+            variant="outline"
+            className="border-blue-400 text-blue-600 hover:bg-blue-50"
+          >
+            Pricing Rules
+          </Button>
+          <Button
+            onClick={() => router.push('/settings')}
+            variant="outline"
+            className="border-blue-400 text-blue-600 hover:bg-blue-50"
+          >
+            Settings
+          </Button>
+        </div>
 
         <Button
           onClick={handleLogout}
@@ -297,7 +345,7 @@ export default function Page() {
                           actualCostExVat: costPrice,
                           bottleSizeMl: baseBottleMl,
                           gp,
-                          pricingPolicy: DEFAULT_PRICING_POLICY,
+                          pricingPolicy,
                           saleContext: isBottleRow
                             ? { kind: 'bottle', applyBtgDiscount: isBTG }
                             : { kind: 'pour', pourMl: parseInt(size, 10) },
