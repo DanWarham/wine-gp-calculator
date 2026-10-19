@@ -29,7 +29,7 @@ Practical setup and workflow notes derived from the repository as it exists toda
 
 **Note:** Application code does **not** load `.env` variables today. Creating a `.env.local` will have **no effect** until `supabaseClient.ts` is changed to read `process.env`.
 
-**Assumption:** Local development uses the shared remote Supabase project referenced in `supabaseClient.ts`. There is no `supabase/` directory or local Supabase stack in this repo.
+**Assumption:** Local development uses the shared remote Supabase project referenced in `supabaseClient.ts` (project ref `jcylgbtifwpcjncnnfok`). A `supabase/` directory with config and migrations exists for schema governance. A full local Supabase Docker stack is **not** required for day-to-day app work.
 
 ---
 
@@ -78,22 +78,71 @@ Never commit service-role keys. Never paste real credentials into documentation.
 
 ## Database Workflow
 
-| Concern | Reality in this repo |
-|---------|----------------------|
-| Migrations in git | **None** |
-| Seed scripts | **None** |
-| Local DB | **None** configured |
-| Schema changes | Done in Supabase Dashboard / external tooling |
+### Schema authority
 
-Application expectations for schema:
+| Layer | Role |
+|-------|------|
+| `supabase/migrations/` | Source-controlled history of intended/applied application schema evolution |
+| Live Supabase | Actual deployed database state |
+| [`DATA_MODEL.md`](./DATA_MODEL.md) / [`06-current-implementation.md`](./06-current-implementation.md) | Human-readable documentation |
+
+If migrations and live state disagree, investigate the drift before changing either.
+
+### Current baseline (Stage 3A)
+
+| Item | Status |
+|------|--------|
+| Migration directory | `supabase/migrations/` |
+| Baseline file | `20261019134900_baseline_current_schema.sql` |
+| What it represents | Existing `public.gp_settings` (columns, constraints, RLS, grants, comment) |
+| Live schema change in 3A | **None** — baseline describes reality; it must not be re-executed against the existing live DB |
+| Remote history | **Pending operator step:** mark baseline applied via repair (history only), not `db push` of the baseline DDL. As of Stage 3A verification, remote `list_migrations` was still `[]`. |
+
+Application expectations for schema (unchanged by Stage 3A):
 
 - Table `public.gp_settings` with `id`, `user_id` (unique), `rules` (jsonb), `created_at`
-- RLS: `auth.uid() = user_id`
+- RLS: `auth.uid() = user_id` (policy name preserved in baseline)
 - Supabase Auth enabled for email/password
+- **No** FK from `gp_settings.user_id` to `auth.users` (current reality; improve only via a later explicit migration)
 
-After schema changes, update [`DATA_MODEL.md`](./DATA_MODEL.md) and verify client queries still match.
+### Future migration process
 
-To inspect live schema (operators with project access): Supabase dashboard SQL editor, or MCP/`supabase` CLI against the project — not via files in this repository.
+1. Understand the required schema change.
+2. Create a new source-controlled migration (`npx supabase migration new <name>`).
+3. Review: schema impact, data impact, RLS/security, compatibility with application code.
+4. Apply the migration to the appropriate linked Supabase environment (`npx supabase db push` or equivalent CI).
+5. Verify: migration recorded as applied; expected schema/RLS present; application behaviour remains valid.
+6. Commit the migration with the related implementation.
+
+Principles:
+
+- Migrations are authoritative for application schema evolution.
+- Dashboard-only schema edits should not be normal development practice.
+- Emergency/manual remote changes must subsequently be reconciled with migrations (`db pull` / repair as appropriate).
+- Every new user-owned table requires explicit RLS consideration.
+- Application code and migrations that depend on one another should be reviewed/deployed coherently.
+
+### CLI notes
+
+```bash
+# Create an empty migration file
+npx supabase migration new <descriptive_name>
+
+# Mark an already-present remote schema migration as applied (history only — no DDL)
+npx supabase migration repair --status applied <timestamp> --project-ref jcylgbtifwpcjncnnfok
+
+# Apply *new* migrations that are not yet on the remote (never use this to re-run the Stage 3A baseline against live)
+npx supabase db push
+
+# Compare local vs remote migration status
+npx supabase migration list --project-ref jcylgbtifwpcjncnnfok
+```
+
+Requires Supabase CLI auth (`npx supabase login` or `SUPABASE_ACCESS_TOKEN`). Linking may also require the database password.
+
+After schema changes, update [`DATA_MODEL.md`](./DATA_MODEL.md) / [`06-current-implementation.md`](./06-current-implementation.md) and verify client queries still match.
+
+To inspect live schema (operators with project access): Supabase dashboard SQL editor, MCP, or `supabase` CLI against the project.
 
 ---
 

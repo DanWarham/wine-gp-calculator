@@ -2,7 +2,17 @@
 
 Documents persistent storage (Supabase) and important in-memory / TypeScript domain structures.
 
-**Schema source:** Live Supabase project `wine-gp-calculator` (ref matching `src/lib/supabaseClient.ts`), inspected via project metadata. There is **no** Prisma/Drizzle/SQL migration folder in this git repository.
+**Schema sources (Stage 3A):**
+
+| Authority | Role |
+|-----------|------|
+| `supabase/migrations/` | Source-controlled history of intended/applied **application** schema evolution |
+| Live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calculator`) | Actual deployed database state |
+| This file / [`06-current-implementation.md`](./06-current-implementation.md) | Human-readable documentation |
+
+If migrations and live state disagree, **investigate the drift** — do not silently declare either correct without verification.
+
+**Baseline:** `supabase/migrations/20261019134900_baseline_current_schema.sql` represents the existing application schema (`public.gp_settings` + RLS/grants). Stage 3A did **not** alter that live schema.
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting schema/type detail. If sources materially disagree, investigate rather than silently reconciling them.
 

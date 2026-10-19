@@ -189,8 +189,8 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `rules` | `jsonb` nullable | Rule array |
 | `created_at` | `timestamp` | Default `now()` |
 
-- **RLS:** enabled; policy allows ALL where `auth.uid() = user_id`.
-- **Migrations:** none in repository; remote migration history empty (`list_migrations` = `[]`).
+- **RLS:** enabled; policy `"Policy with security definer functions"` allows ALL where `auth.uid() = user_id` (USING + WITH CHECK).
+- **Migrations (Stage 3A):** source-controlled baseline at `supabase/migrations/20261019134900_baseline_current_schema.sql`. Stage 3A did **not** alter the live application schema or data. Remote history still needs `migration repair --status applied 20261019134900` (CLI auth required; see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
 
 Row counts are volatile point-in-time observations and are not architectural facts.
 
@@ -234,12 +234,13 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 
 ## Database Development Workflow
 
-- No migration baseline in the repository.
-- Live hosted schema is the source of truth today.
-- Schema changes are performed outside git (dashboard / external tooling).
-- Migration workflow is **not yet established**.
+- Source-controlled Supabase migrations exist under `supabase/migrations/`.
+- Stage 3A established a baseline of the **existing** `gp_settings` schema (no schema change).
+- Future application schema changes are **migration-first** (see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
+- Authority: migrations = intended/applied evolution; live Supabase = deployed state; this doc / `DATA_MODEL.md` = human-readable.
+- Dashboard-only schema edits should not be normal practice; reconcile any emergency manual changes into migrations.
 
-Establishing source-controlled migrations is an intended prerequisite before sales schema expansion ([`05-project-architecture.md`](./05-project-architecture.md)), not current practice.
+Local Docker is not required merely to author or review migrations.
 
 ---
 
@@ -266,7 +267,7 @@ Prioritised for orientation (not exhaustive assessment dump):
 3. Unused emoji-prefixed rule form duplicates.
 4. Broken `public.users` login lookup.
 5. Hardcoded Supabase configuration.
-6. Absent schema migrations in source control.
+6. Remote migration history may still need baseline repair (`migration repair --status applied 20261019134900`) if not yet completed after Stage 3A.
 7. Persisted rule sets that historically relied on silent 70% gap behaviour will now surface explicit calculator errors until rules are fixed.
 
 ---
