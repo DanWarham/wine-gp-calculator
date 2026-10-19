@@ -4,6 +4,10 @@ Documents persistent storage (Supabase) and important in-memory / TypeScript dom
 
 **Schema source:** Live Supabase project `wine-gp-calculator` (ref matching `src/lib/supabaseClient.ts`), inspected via project metadata. There is **no** Prisma/Drizzle/SQL migration folder in this git repository.
 
+**Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting schema/type detail. If sources materially disagree, investigate rather than silently reconciling them.
+
+Only `auth.users` and `public.gp_settings` exist today. Sales, scenario, and versioning entities described as intended architecture in `05` are **not** implemented.
+
 ---
 
 ## Entity Relationship Overview

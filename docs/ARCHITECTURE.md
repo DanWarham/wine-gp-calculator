@@ -1,6 +1,10 @@
 # Architecture — Wine GP Calculator
 
-Technical architecture reference. Companion to [`AI_CONTEXT.md`](./AI_CONTEXT.md).
+Detailed technical architecture reference. Companion to [`AI_CONTEXT.md`](./AI_CONTEXT.md).
+
+**Documentation authority:** Repository/database evidence determines current implementation. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting structural detail. If sources materially disagree, investigate rather than silently reconciling them.
+
+This document describes the **current** client/Supabase structure. Planned sales import, scenarios, and the shared pricing engine are intended architecture — see `05` — and are **not** present in the application yet.
 
 ---
 

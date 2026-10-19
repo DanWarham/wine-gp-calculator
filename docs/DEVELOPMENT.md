@@ -2,6 +2,8 @@
 
 Practical setup and workflow notes derived from the repository as it exists today.
 
+**Documentation authority:** Repository evidence determines current tooling. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting setup/workflow detail. If sources materially disagree, investigate rather than silently reconciling them.
+
 ---
 
 ## Local Setup
@@ -162,7 +164,9 @@ Patterns already present — prefer consistency over inventing a new style guide
 
 ## Related docs
 
-- [`AI_CONTEXT.md`](./AI_CONTEXT.md) — product + business logic orientation  
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — system structure  
+- [`05-project-architecture.md`](./05-project-architecture.md) — canonical intended architecture  
+- [`06-current-implementation.md`](./06-current-implementation.md) — canonical current technical overview  
+- [`AI_CONTEXT.md`](./AI_CONTEXT.md) — detailed product + business logic orientation  
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — detailed system structure  
 - [`DATA_MODEL.md`](./DATA_MODEL.md) — schema and types  
 - Root [`README.md`](../README.md) — still create-next-app boilerplate  

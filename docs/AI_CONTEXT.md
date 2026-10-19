@@ -1,9 +1,17 @@
 # AI Context — Wine GP Calculator
 
-Primary orientation document for AI coding assistants and engineers working on this repository.
+Detailed product and domain orientation for AI coding assistants and engineers working on this repository.
 
 **Last reviewed against codebase:** 2026-10-19  
 **Scope:** Documentation only. Do not treat this file as executable specification if it drifts from source — prefer the referenced source files.
+
+**Documentation authority:**
+
+- Repository and database evidence determine what is currently implemented.
+- [`05-project-architecture.md`](./05-project-architecture.md) is the canonical intended architecture and product/domain direction.
+- [`06-current-implementation.md`](./06-current-implementation.md) is the canonical current technical overview.
+- This file and the other detailed docs provide supporting implementation/reference detail.
+- If these sources materially disagree, investigate rather than silently reconciling them.
 
 ---
 
@@ -328,7 +336,7 @@ Supported by the repository / live DB (not invented):
 9. **No automated tests** for pricing or rule validation despite financial sensitivity.
 10. **No Next middleware** — protection is per-page `getSession` only; brief flash / empty render possible.
 11. **README** is still create-next-app boilerplate; not product documentation.
-12. Live DB showed **0 rows** in `gp_settings` at review time — either unused production data or wiped; does not by itself indicate code bugs.
+12. `gp_settings` row counts are volatile point-in-time observations, not architecture. Do not treat a specific count as a product fact.
 
 ---
 
@@ -361,3 +369,13 @@ Commit history language (“Final Update”, etc.) suggests the author considere
 8. Run `npm run lint` and `npm run build` after substantive edits (only scripts that exist).
 9. Schema changes belong in Supabase (migrations/dashboard), not only TypeScript — keep `DATA_MODEL.md` updated.
 10. Never commit real secrets; if moving credentials to env, use placeholders in docs and `.env.example` only.
+
+---
+
+## Related docs
+
+- [`05-project-architecture.md`](./05-project-architecture.md) — canonical intended architecture  
+- [`06-current-implementation.md`](./06-current-implementation.md) — canonical current technical overview  
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — detailed system structure  
+- [`DATA_MODEL.md`](./DATA_MODEL.md) — schema and types  
+- [`DEVELOPMENT.md`](./DEVELOPMENT.md) — local setup and workflow
