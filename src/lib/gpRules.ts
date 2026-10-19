@@ -1,4 +1,5 @@
-import { Rule, LessThanRule, GreaterThanRule, BetweenRule } from '@/types/rules'
+import { Rule } from '@/types/rules'
+import { validateRuleSetForPricing } from '@/lib/pricing'
 
 // Sanitizes input to only allow valid characters
 export const sanitizeInput = (value: string, isGpField: boolean = false): string => {
@@ -35,8 +36,8 @@ export const validateInput = (value: string, isGpField: boolean = false): boolea
   const parsed = parseFloat(value)
   if (isNaN(parsed)) return false
   
-  // For GP percentage fields, ensure the value is between 1 and 100
-  if (isGpField && (parsed < 1 || parsed > 100)) return false
+  // GP form fields: keep existing lower bound of 1; reject GP >= 100 (zero denominator).
+  if (isGpField && (parsed < 1 || parsed >= 100)) return false
   
   // For price fields, ensure the value is non-negative
   if (!isGpField && parsed < 0) return false
@@ -51,8 +52,8 @@ export const safeParse = (value: string, isGpField: boolean = false): number | u
   const parsed = parseFloat(value)
   if (isNaN(parsed)) return undefined
   
-  // For GP percentage fields, ensure the value is between 1 and 100
-  if (isGpField && (parsed < 1 || parsed > 100)) return undefined
+  // GP form fields: keep existing lower bound of 1; reject GP >= 100.
+  if (isGpField && (parsed < 1 || parsed >= 100)) return undefined
   
   // For price fields, ensure the value is non-negative
   if (!isGpField && parsed < 0) return undefined
@@ -64,6 +65,10 @@ export const validateNumberField = (value: unknown): boolean => {
   return typeof value === 'number' && !isNaN(value)
 }
 
+/**
+ * Form/editor helper: field completeness, then pricing-domain structural authority.
+ * Contiguity/gap UX remains the responsibility of the setup page helpers.
+ */
 export const validateRules = (rules: Rule[], setError: (msg: string) => void): boolean => {
   if (!rules.length) {
     setError("You must have at least one rule.")
@@ -102,29 +107,10 @@ export const validateRules = (rules: Rule[], setError: (msg: string) => void): b
     }
   }
 
-  if (rules.length === 1 && rules[0].type === 'all_gp') {
-    return true
-  }
-
-  const sorted = [...rules].filter(r => r.type !== 'all_gp').sort((a, b) => {
-    if (a.type === 'less_than' && b.type === 'between') return (a as LessThanRule).max - (b as BetweenRule).min
-    if (a.type === 'between' && b.type === 'between') return (a as BetweenRule).min - (b as BetweenRule).min
-    if (a.type === 'between' && b.type === 'greater_than') return (a as BetweenRule).max - (b as GreaterThanRule).min
-    if (a.type === 'less_than' && b.type === 'greater_than') return (a as LessThanRule).max - (b as GreaterThanRule).min
-    return 0
-  })
-
-  let expectedMin = (sorted[0] as LessThanRule).max
-
-  for (let i = 1; i < sorted.length; i++) {
-    const current = sorted[i]
-    if ('min' in current && current.min !== expectedMin) {
-      setError("Detected a gap in your pricing rules. Please adjust the ranges.")
-      return false
-    }
-    if ('max' in current) {
-      expectedMin = current.max
-    }
+  const pricingError = validateRuleSetForPricing(rules)
+  if (pricingError) {
+    setError(pricingError.message)
+    return false
   }
 
   return true

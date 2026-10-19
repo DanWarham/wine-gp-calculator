@@ -59,7 +59,7 @@ export default function LessThanRuleForm({
     setInputValues(prev => ({ ...prev, gp: sanitized }))
     
     if (!validateInput(sanitized, true)) {
-      setErrors(prev => ({ ...prev, gp: "Please enter a number between 1 and 100" }))
+      setErrors(prev => ({ ...prev, gp: "Please enter a number from 1 up to but not including 100" }))
       return
     }
     

@@ -7,37 +7,34 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { sanitizeInput, validateInput } from '@/lib/gpRules'
+import type { Rule } from '@/types/rules'
+import {
+  DEFAULT_PRICING_POLICY,
+  isValidGp,
+  isValidPositiveMl,
+  priceWithGp,
+  resolveTargetGp,
+} from '@/lib/pricing'
 
-interface BaseRule {
-  type: 'less_than' | 'between' | 'greater_than' | 'all_gp'
+/** Display-only GP formatting. Does not alter the value passed into pricing. */
+function formatGpDisplay(gp: number): string {
+  if (!Number.isFinite(gp)) return '—'
+  // One decimal place for readability; calculation state retains full precision.
+  const display = Math.round(gp * 10) / 10
+  return Number.isInteger(display) ? String(display) : display.toFixed(1)
 }
 
-interface LessThanRule extends BaseRule {
-  type: 'less_than'
-  max: number
-  gp: number
+function resolveBottleSizeMl(
+  bottleSize: string,
+  customBottleSizeInput: string
+): number | null {
+  if (bottleSize === 'Half') return 375
+  if (bottleSize === 'Bottle') return 750
+  if (bottleSize === 'Magnum') return 1500
+  const parsed = parseFloat(customBottleSizeInput)
+  if (!isValidPositiveMl(parsed)) return null
+  return parsed
 }
-
-interface GreaterThanRule extends BaseRule {
-  type: 'greater_than'
-  min: number
-  gp: number
-}
-
-interface BetweenRule extends BaseRule {
-  type: 'between'
-  min: number
-  max: number
-  start_gp: number
-  end_gp: number
-}
-
-interface AllGpRule extends BaseRule {
-  type: 'all_gp'
-  gp: number
-}
-
-type Rule = LessThanRule | GreaterThanRule | BetweenRule | AllGpRule
 
 export default function Page() {
   const router = useRouter()
@@ -47,13 +44,12 @@ export default function Page() {
   const [isBTG, setIsBTG] = useState<boolean>(false)
   const [gp, setGp] = useState<number>(75)
   const [suggestedGp, setSuggestedGp] = useState<number>(75)
+  const [gpError, setGpError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [rules, setRules] = useState<Rule[]>([])
   const [loadingSession, setLoadingSession] = useState(true)
   const [showSetupModal, setShowSetupModal] = useState(false)
   const [costPriceError, setCostPriceError] = useState<string | null>(null)
-
-  const VAT_RATE = 0.2
 
   const WINE_SIZES: Record<string, string[]> = {
     Dry: ["125", "175", "250", "500", "Bottle"],
@@ -62,47 +58,18 @@ export default function Page() {
   }
 
   const availableSizes = WINE_SIZES[wineType] || []
-  const costPrice = parseFloat(costPriceInput) || 0
+  const costPrice = costPriceInput === '' ? NaN : parseFloat(costPriceInput)
 
   const [bottleSize, setBottleSize] = useState<string>("Bottle")
   const [customBottleSizeInput, setCustomBottleSizeInput] = useState<string>("")
 
-  const baseBottleMl = bottleSize === "Half" ? 375
-    : bottleSize === "Bottle" ? 750
-    : bottleSize === "Magnum" ? 1500
-    : parseInt(customBottleSizeInput) || 750
+  const baseBottleMl = resolveBottleSizeMl(bottleSize, customBottleSizeInput)
 
   const bottleLabel = bottleSize === "Other"
-    ? `${customBottleSizeInput}ml`
+    ? (customBottleSizeInput ? `${customBottleSizeInput}ml` : "Custom bottle")
     : bottleSize === "Half" ? "Half Bottle"
     : bottleSize === "Bottle" ? "Bottle"
     : "Magnum"
-
-  function calculateGP(cost: number, isBTG: boolean, rules: Rule[]): number {
-    if (!rules.length) return 70
-
-    const allGpRule = rules.find(rule => rule.type === 'all_gp')
-    if (allGpRule) return allGpRule.gp
-
-    for (const rule of rules) {
-      if (rule.type === 'less_than' && cost < rule.max) {
-        return rule.gp
-      }
-      if (rule.type === 'greater_than' && cost > rule.min) {
-        return rule.gp
-      }
-      if (rule.type === 'between' && cost >= rule.min && cost <= rule.max) {
-        const proportion = (cost - rule.min) / (rule.max - rule.min)
-        return rule.start_gp - proportion * (rule.start_gp - rule.end_gp)
-      }
-    }
-
-    return 70
-  }
-
-  function calculatePrice(cost: number, gp: number): number {
-    return (cost * (1 + VAT_RATE)) / (1 - gp / 100)
-  }
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -135,17 +102,50 @@ export default function Page() {
   useEffect(() => {
     setLoading(true)
     const timeout = setTimeout(() => {
-      const suggested = calculateGP(costPrice, isBTG, rules)
-      setSuggestedGp(Math.round(suggested))
-      setGp(Math.round(suggested))
+      if (showSetupModal || rules.length === 0) {
+        setGpError(null)
+        setLoading(false)
+        return
+      }
+
+      if (baseBottleMl === null) {
+        setGpError('Enter a valid custom bottle size in ml.')
+        setLoading(false)
+        return
+      }
+
+      if (!Number.isFinite(costPrice) || costPrice < 0) {
+        setGpError(null)
+        setLoading(false)
+        return
+      }
+
+      const resolved = resolveTargetGp({
+        actualCostExVat: costPrice,
+        bottleSizeMl: baseBottleMl,
+        rules,
+      })
+
+      if (!resolved.ok) {
+        setGpError(resolved.error.message)
+        setLoading(false)
+        return
+      }
+
+      setGpError(null)
+      setSuggestedGp(resolved.targetGp)
+      setGp(resolved.targetGp)
       setLoading(false)
     }, 200)
 
     return () => clearTimeout(timeout)
-  }, [costPrice, isBTG, rules])
+  }, [costPrice, baseBottleMl, rules, showSetupModal])
 
   const handleNudge = (delta: number) => {
-    setGp(prev => Math.min(100, Math.max(1, prev + delta)))
+    setGp((prev) => {
+      const next = prev + delta
+      return isValidGp(next) ? next : prev
+    })
   }
 
   const handleLogout = async () => {
@@ -251,9 +251,16 @@ export default function Page() {
 
           <div className="flex flex-wrap gap-4 justify-center">
             <Button className="w-24" size="sm" onClick={() => handleNudge(-1)}>-1%</Button>
-            <div className="font-semibold text-gray-700 self-center">GP: {gp}%</div>
+            <div className="font-semibold text-gray-700 self-center">GP: {formatGpDisplay(gp)}%</div>
             <Button className="w-24" size="sm" onClick={() => handleNudge(1)}>+1%</Button>
-            <Button className="w-28" size="sm" variant="outline" onClick={() => setGp(suggestedGp)}>
+            <Button
+              className="w-28"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (isValidGp(suggestedGp)) setGp(suggestedGp)
+              }}
+            >
               Reset GP
             </Button>
           </div>
@@ -264,6 +271,12 @@ export default function Page() {
 
               {loading ? (
                 <div className="text-center py-10 text-gray-500">Calculating prices...</div>
+              ) : gpError ? (
+                <div className="text-center py-10 text-red-600">{gpError}</div>
+              ) : baseBottleMl === null || !Number.isFinite(costPrice) || costPrice < 0 || !isValidGp(gp) ? (
+                <div className="text-center py-10 text-gray-500">
+                  Enter a valid cost and bottle size to see prices.
+                </div>
               ) : (
                 <table className="w-full table-auto border-collapse text-sm">
                   <thead>
@@ -279,29 +292,29 @@ export default function Page() {
                         return true
                       })
                       .map((size) => {
-                        const ml = size === "Bottle" ? baseBottleMl : parseInt(size)
-                        let basePrice = calculatePrice(costPrice, gp)
+                        const isBottleRow = size === "Bottle"
+                        const priced = priceWithGp({
+                          actualCostExVat: costPrice,
+                          bottleSizeMl: baseBottleMl,
+                          gp,
+                          pricingPolicy: DEFAULT_PRICING_POLICY,
+                          saleContext: isBottleRow
+                            ? { kind: 'bottle', applyBtgDiscount: isBTG }
+                            : { kind: 'pour', pourMl: parseInt(size, 10) },
+                        })
 
-                        if (isBTG && size === "Bottle") {
-                          basePrice = basePrice * 0.95
-                        }
-
-                        let price = (basePrice / baseBottleMl) * ml
                         let displayPrice: string
-
-                        if (size === "Bottle") {
-                          // Round to nearest pound
-                          price = Math.round(price)
-                          displayPrice = `£${price}`
+                        if (!priced.ok) {
+                          displayPrice = '—'
+                        } else if (isBottleRow) {
+                          displayPrice = `£${priced.roundedSalePrice}`
                         } else {
-                          // Round to nearest 50p
-                          price = Math.round(price * 2) / 2
-                          displayPrice = `£${price.toFixed(2)}`
+                          displayPrice = `£${priced.roundedSalePrice.toFixed(2)}`
                         }
 
                         return (
                           <tr key={size} className="hover:bg-gray-100">
-                            <td className="border p-2 text-center">{size === "Bottle" ? bottleLabel : `${size}ml`}</td>
+                            <td className="border p-2 text-center">{isBottleRow ? bottleLabel : `${size}ml`}</td>
                             <td className="border p-2 text-center">{displayPrice}</td>
                           </tr>
                         )

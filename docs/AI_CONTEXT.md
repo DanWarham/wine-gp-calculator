@@ -47,11 +47,11 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 
 | Term | Meaning in this app | Evidence |
 |------|---------------------|----------|
-| **GP / Gross Profit %** | Target margin percentage used to derive selling price. Stored and edited as a number typically 1–100. Displayed as `GP: {n}%`. | `src/app/page.tsx`, rule forms |
+| **GP / Gross Profit %** | Target margin percentage used to derive selling price. Valid calculation range: `0 < GP < 100`. Display may format; calculation keeps full precision. | `src/lib/pricing`, rule forms |
 | **Gross Profit** | Not shown as a £ amount; only GP % is used. | UI shows % only |
 | **Cost price** | Purchase cost **excluding VAT**. Label: “Cost Price (ex VAT)”. | `src/app/page.tsx` |
-| **Selling price** | Customer-facing price in £, derived from cost + VAT treatment + GP. | `calculatePrice` on home page |
-| **VAT / tax** | Fixed rate `VAT_RATE = 0.2` (20%). Applied by multiplying cost by `(1 + VAT_RATE)` inside the selling-price formula. | `src/app/page.tsx` |
+| **Selling price** | Customer-facing price in £, derived from cost + VAT treatment + GP. | `src/lib/pricing` |
+| **VAT / tax** | Default policy `vatRate = 0.2` (20%). Applied inside the selling-price formula. | `DEFAULT_PRICING_POLICY` |
 | **Wine type** | `Dry`, `Sweet` (UI: “Sweet/Fortified”), or `Sparkling`. Controls which pour sizes are offered. | `WINE_SIZES` in `src/app/page.tsx` |
 | **Bottle pricing** | Price for a full bottle (Half 375ml / Bottle 750ml / Magnum 1500ml / Other custom ml). Rounded to nearest £. | Home page |
 | **Glass / pour pricing** | ml-based servings when “Selling By the Glass”. Rounded to nearest 50p. | Home page |
@@ -63,7 +63,7 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 
 ### Assumptions (not proven by code)
 
-- Users are primarily **UK** venues (hardcoded 20% VAT and £ display). Currency and VAT rate are not configurable.
+- Users are primarily **UK** venues (default 20% VAT and £ display). Policy is typed for future configuration; Stage-2 UI still uses defaults.
 - “GP” here is the hospitality trade meaning: margin as a percentage of **selling price**, rearranged into the formula below — not markup-on-cost.
 - The 5% bottle discount when BTG is a commercial convention (bottle cheaper than equivalent glass pours); rationale is not documented in-repo.
 
@@ -71,105 +71,89 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 
 ## Core Business Logic
 
-All primary financial math currently lives in **`src/app/page.tsx`** (client component), not in a shared library. Rule validation / input helpers live in **`src/lib/gpRules.ts`**.
+Authoritative financial math lives in **`src/lib/pricing/`** (pure domain; no React/Supabase). The calculator UI in **`src/app/page.tsx`** calls that domain. Rule form helpers remain in **`src/lib/gpRules.ts`**. Canonical rule shapes: **`src/types/rules.ts`**.
 
-### 1. Suggested GP from rules — `calculateGP(cost, isBTG, rules)`
+### 1. Suggested GP from rules — `resolveTargetGp`
 
-**Source:** `src/app/page.tsx` → `calculateGP`
-
-| | |
-|--|--|
-| **Inputs** | `cost` (number, ex-VAT cost), `isBTG` (boolean — **accepted but unused**), `rules: Rule[]` |
-| **Outputs** | Suggested GP % (number; may be fractional for `between` before rounding) |
-| **VAT** | Not applied here; rules match on ex-VAT cost |
-| **Rounding** | Caller rounds with `Math.round(suggested)` when applying to UI state |
-
-**Formula / logic:**
-
-1. If `rules` empty → return **70**.
-2. If any rule has `type === 'all_gp'` → return that rule’s `gp` (first match via `.find`).
-3. Else iterate rules in array order:
-   - `less_than`: if `cost < rule.max` → return `rule.gp`
-   - `greater_than`: if `cost > rule.min` → return `rule.gp`
-   - `between`: if `cost >= rule.min && cost <= rule.max`:
-     ```
-     proportion = (cost - min) / (max - min)
-     gp = start_gp - proportion * (start_gp - end_gp)
-     ```
-     (linear interpolation from `start_gp` at `min` to `end_gp` at `max`)
-4. If no rule matches → return **70**.
-
-**Constraint:** Rule order and boundary semantics matter. Equal boundaries between contiguous rules are expected by setup validation; matching uses `<` / `>` for ends and inclusive `>=`/`<=` for between.
-
----
-
-### 2. Selling price from cost + GP — `calculatePrice(cost, gp)`
-
-**Source:** `src/app/page.tsx` → `calculatePrice`
+**Source:** `src/lib/pricing/rules.ts`
 
 | | |
 |--|--|
-| **Inputs** | `cost` (ex VAT), `gp` (percent 1–100) |
-| **Outputs** | Unrounded bottle-equivalent selling price (number) |
-| **VAT** | Cost is inflated by 20% before margin maths |
-| **Rounding** | None inside this function |
+| **Inputs** | `actualCostExVat`, `bottleSizeMl`, `rules` |
+| **Reference cost** | `actualCostExVat × 750 / bottleSizeMl` |
+| **Outputs** | `{ ok, targetGp, matchedRule, referenceCost750ml }` or explicit error |
+| **VAT** | Not applied here; rules match on ex-VAT **reference** cost |
 
-**Formula:**
+**Logic:**
 
-```
-VAT_RATE = 0.2
-sellingPrice = (cost * (1 + VAT_RATE)) / (1 - gp / 100)
-```
+1. Validate cost, bottle ml (&gt; 0), and rule-set structure.
+2. If `all_gp` present → that GP.
+3. Else find covering band(s) for the reference cost:
+   - `less_than`: `cost < max`
+   - `greater_than`: `cost > min`
+   - `between`: `min ≤ cost ≤ max`, linear interpolate (full precision)
+4. Zero matches → `NO_MATCHING_RULE` (no silent 70% fallback).
+5. Conflicting multi-match → `AMBIGUOUS_RULE_MATCH`.
 
-Equivalent hospitality form: treat VAT-inclusive cost as the cost base, then  
-`price = vatInclusiveCost / (1 - GP%)`.
+Valid margin GP everywhere: **`0 < GP < 100`**.
 
 ---
 
-### 3. Pour / bottle line pricing (render path)
+### 2. Selling price — `priceWithGp` / `priceSale`
 
-**Source:** `src/app/page.tsx` (table body)
+**Source:** `src/lib/pricing/pricing.ts`
 
-**Inputs:** `costPrice`, `gp`, `isBTG`, `wineType` → `availableSizes`, `baseBottleMl`, selected size.
+```text
+sellingPriceIncVat =
+(actualCostExVat × (1 + vatRate))
+/
+(1 - gp / 100)
+```
 
-**Steps per displayed size:**
+Policy defaults (`DEFAULT_PRICING_POLICY`): VAT 20%, BTG bottle discount 5%, bottle round £1, pour round £0.50.
 
-1. `basePrice = calculatePrice(costPrice, gp)`
-2. If `isBTG && size === "Bottle"`: `basePrice *= 0.95`
-3. `ml = size === "Bottle" ? baseBottleMl : parseInt(size)`
-4. `price = (basePrice / baseBottleMl) * ml`
-5. **Rounding / display:**
-   - Bottle: `price = Math.round(price)` → `£{price}` (nearest pound, no decimals)
-   - Pour: `price = Math.round(price * 2) / 2` → `£{price.toFixed(2)}` (nearest 50p)
+- BTG discount applies only to the displayed full-bottle line.
+- Pours scale from the **undiscounted** bottle-equivalent raw price.
+- Commercial rounding via `roundToIncrement`.
+- `gpOverride` prices without re-resolving rules (manual nudge path).
 
-**Bottle-only mode:** when `!isBTG`, only the `"Bottle"` size row is shown.
+---
+
+### 3. Calculator render path
+
+**Source:** `src/app/page.tsx`
+
+1. Resolve suggested GP via `resolveTargetGp` (full precision into state; display may format).
+2. User may nudge GP ±1% while `0 < GP < 100`.
+3. Each visible size row calls `priceWithGp` with active GP and `DEFAULT_PRICING_POLICY`.
+4. Errors (gap, invalid bottle size, invalid GP) surface as messages — not invented prices.
+
+**Bottle-only mode:** when `!isBTG`, only the bottle row is shown.
 
 ---
 
 ### 4. Bottle volume resolution
-
-**Source:** `src/app/page.tsx`
 
 | Selection | ml |
 |-----------|-----|
 | Half | 375 |
 | Bottle | 750 |
 | Magnum | 1500 |
-| Other | `parseInt(customBottleSizeInput)` or fallback **750** |
+| Other | parsed custom ml; **invalid/non-positive → pricing error** (no silent 750) |
 
 ---
 
 ### 5. Input sanitisation / validation helpers
 
-**Source:** `src/lib/gpRules.ts`
+**Source:** `src/lib/gpRules.ts` (UI forms)
 
 | Function | Behaviour |
 |----------|-----------|
 | `sanitizeInput(value, isGpField)` | Digits + one `.`; GP → 1 decimal place; price → 2 decimal places |
-| `validateInput(value, isGpField)` | Empty allowed; GP must be in **[1, 100]**; prices **≥ 0** |
+| `validateInput(value, isGpField)` | Empty allowed; GP in **[1, 100)**; prices **≥ 0** |
 | `safeParse(value, isGpField)` | `parseFloat` or `undefined` with same bounds |
 | `validateNumberField` | `typeof number && !isNaN` |
-| `validateRules(rules, setError)` | At least one rule; field completeness; contiguous ranges (no gaps). **Note:** `gp-setup/page.tsx` reimplements its own `validateRules` and does not import this export. |
+| `validateRules(rules, setError)` | Field completeness then `validateRuleSetForPricing`. Setup save path also calls the pricing-domain validator directly. |
 
 ---
 
@@ -177,11 +161,11 @@ Equivalent hospitality form: treat VAT-inclusive cost as the cost base, then
 
 **Source:** `src/app/gp-setup/page.tsx`
 
-- `findOverlappingRules` — blocks save/edit if ranges intersect (touching edges OK: overlap if `aMax > bMin && aMin < bMax`).
-- `analyzeGaps` / gap modal / `handleAddAllMissingRules` — detects missing between-bands and can insert `between` rules.
-- `fillGaps` — auto-inserts between rules using less-than / greater-than GP endpoints (used in a secondary path during save).
+- `findOverlappingRules` — blocks save/edit if ranges intersect (touching edges OK).
+- `analyzeGaps` / gap modal — can insert missing `between` rules.
+- Engine rejects degenerate/ambiguous structures and fails closed on uncovered reference costs at calculation time.
 
-Custom wizard at `/gp-setup/custom` has its own gap checks and upserts rules; **nothing in the UI currently links to this route** (orphan page).
+Custom wizard at `/gp-setup/custom` remains an unlinked orphan route.
 
 ---
 
@@ -193,13 +177,13 @@ Custom wizard at `/gp-setup/custom` has its own gap checks and upserts rules; **
 | Email/password signup | Supabase `auth.signUp`; client-side password rules (8+, upper, lower, digit) | `src/app/signup/page.tsx` |
 | Login | `auth.signInWithPassword`; on failure attempts `.from('users')` email lookup (see Known Issues) | `src/app/login/page.tsx` |
 | Logout | `auth.signOut` → `/welcome` | Home page |
-| Calculator | Cost, wine type, bottle size, BTG, GP nudge, price table | `src/app/page.tsx` |
+| Calculator | Cost, wine type, bottle size, BTG, GP nudge, price table | `src/app/page.tsx` + `src/lib/pricing` |
 | Force rule setup | Modal if no `gp_settings.rules` | Home page |
 | GP rule editor | Universal or custom bands; overlap/gap UX; persist to Supabase | `src/app/gp-setup/page.tsx` + rule form components |
 | Custom setup wizard | Multi-step less/greater/between | `src/app/gp-setup/custom/page.tsx` (unlinked) |
 | Toasts | Success/error messages (login/signup) | `src/components/toast-provider.tsx` |
 
-**Not present:** wine inventory, multi-venue accounts, VAT rate config, currency config, server API routes, automated tests, Next.js middleware auth guards.
+**Not present:** wine inventory, multi-venue accounts, user-facing policy/serving-size config UI, server API routes, Next.js middleware auth guards.
 
 ---
 
@@ -242,7 +226,8 @@ Supabase Postgres (public.gp_settings + auth.users)
 
 ```
 wine-gp-calculator/
-├── package.json              # scripts: dev, build, start, lint
+├── package.json              # scripts: dev, build, start, lint, test
+├── vitest.config.ts
 ├── next.config.ts            # empty/default config
 ├── tsconfig.json             # @/* → ./src/*
 ├── components.json           # shadcn config
@@ -252,7 +237,7 @@ wine-gp-calculator/
 └── src/
     ├── app/
     │   ├── layout.tsx        # root layout, fonts, ToastProvider
-    │   ├── page.tsx          # MAIN CALCULATOR + pricing math
+    │   ├── page.tsx          # calculator UI (consumes pricing domain)
     │   ├── globals.css
     │   ├── welcome/page.tsx
     │   ├── login/page.tsx
@@ -265,11 +250,12 @@ wine-gp-calculator/
     │   ├── rules/            # rule edit forms (+ emoji-prefixed duplicates)
     │   └── ui/               # button, card, input, toggle
     ├── lib/
-    │   ├── gpRules.ts        # sanitize/validate helpers (+ unused shared validateRules)
+    │   ├── pricing/          # deterministic pricing domain + Vitest suite
+    │   ├── gpRules.ts        # UI sanitize/validate helpers
     │   ├── supabaseClient.ts # Supabase client (hardcoded URL/anon key)
     │   └── utils.ts          # cn() classname helper
     └── types/
-        └── rules.ts          # Rule union types
+        └── rules.ts          # canonical Rule union types
 ```
 
 ---
@@ -278,9 +264,10 @@ wine-gp-calculator/
 
 | File | Role |
 |------|------|
-| `src/app/page.tsx` | **Primary calculations**, calculator UI, session gate, load rules |
+| `src/lib/pricing/` | **Authoritative pricing domain** + financial tests |
+| `src/app/page.tsx` | Calculator UI, session gate, load rules; consumes pricing domain |
 | `src/lib/gpRules.ts` | Input sanitize/validate; shared `validateRules` (partially unused by setup page) |
-| `src/types/rules.ts` | Domain rule TypeScript types |
+| `src/types/rules.ts` | Canonical rule TypeScript types |
 | `src/app/gp-setup/page.tsx` | Rule CRUD UX, gap/overlap, save to `gp_settings` |
 | `src/app/gp-setup/custom/page.tsx` | Alternate custom wizard + upsert |
 | `src/lib/supabaseClient.ts` | Single Supabase browser client |
@@ -299,7 +286,7 @@ There is **no** ORM/schema file in-repo. Live schema is in Supabase project `win
 1. **Auth:** User signs up/logs in via Supabase Auth → session stored by supabase-js in the browser.
 2. **Session check:** Protected pages call `supabase.auth.getSession()`; missing session → redirect `/welcome`.
 3. **Load rules:** `gp_settings` selected where `user_id = session.user.id`.
-4. **Calculate:** User edits cost/options → `useEffect` debounces (~200ms) → `calculateGP` → sets `suggestedGp`/`gp` → table recomputes `calculatePrice` + pour scaling + rounding.
+4. **Calculate:** User edits cost/options → `useEffect` debounces (~200ms) → `resolveTargetGp` → sets `suggestedGp`/`gp` (full precision) → table calls `priceWithGp` per row.
 5. **Persist rules:** Setup page insert/update (or custom page upsert) `gp_settings.rules` JSONB.
 6. **UI feedback:** Toasts on auth; inline errors on setup; success redirect to `/`.
 
@@ -309,15 +296,14 @@ Calculation results are **not** written to the database.
 
 ## Important Constraints
 
-1. **Financial formula must stay consistent** across any refactor:  
-   `(cost * 1.2) / (1 - gp/100)` plus BTG bottle `* 0.95`, pour proportional to ml, bottle round-£ / glass round-50p.
-2. **VAT rate is hardcoded** at 0.2 — changing it without product agreement changes all prices.
-3. **Rules JSON shape** must remain compatible with `Rule` union and both setup + calculator matchers.
+1. **Financial calculations must go through `src/lib/pricing`** — do not reintroduce page-local formulas.
+2. **Default policy** is VAT 0.2 / BTG discount 0.05 / bottle £1 / pour £0.50 until Stage-3 configuration exists.
+3. **Rules JSON shape** must remain compatible with `Rule` union and both setup + engine matchers.
 4. **One `gp_settings` row per user** (`user_id` UNIQUE); save paths assume that.
 5. **RLS** on `gp_settings` requires `auth.uid() = user_id` — client must be authenticated for read/write.
 6. **Client-only Supabase key** is the publishable/anon key pattern; never add service-role keys to frontend.
-7. Duplicating `Rule` interfaces in `page.tsx` / custom page instead of importing `@/types/rules` risks type drift.
-8. `calculateGP` ignores `isBTG` today; do not assume BTG changes suggested GP unless product adds that behaviour.
+7. Prefer `@/types/rules` — avoid new inline Rule copies (custom orphan page still has copies).
+8. BTG affects bottle-line discount only; it does not change rule-selected GP.
 
 ---
 
@@ -325,18 +311,16 @@ Calculation results are **not** written to the database.
 
 Supported by the repository / live DB (not invented):
 
-1. **Hardcoded Supabase URL and anon key** in `src/lib/supabaseClient.ts` instead of env vars (security/ops smell; anon key is public-by-design but rotation/config is inflexible).
-2. **Login “email not found” path queries `.from('users')`**, but **no `public.users` table exists** (only `auth.users`). That lookup cannot succeed as written; error messaging may be wrong.
-3. **`isBTG` unused inside `calculateGP`** despite being a parameter and a `useEffect` dependency.
-4. **Duplicated rule types** in `src/app/page.tsx` and `src/app/gp-setup/custom/page.tsx` vs `src/types/rules.ts`.
-5. **Duplicated `validateRules`**: exported from `gpRules.ts` but GP setup defines a local version; shared export can drift.
-6. **Orphan route** `/gp-setup/custom` — no in-app navigation links found.
-7. **Emoji-prefixed duplicate components** under `src/components/rules/` (`📄 *.tsx`) — older/simpler variants; imports use the non-emoji filenames. Dead weight / confusion risk.
-8. **`safeParse` arity mismatch risk** in emoji duplicates (call without `isGpField`).
-9. **No automated tests** for pricing or rule validation despite financial sensitivity.
-10. **No Next middleware** — protection is per-page `getSession` only; brief flash / empty render possible.
-11. **README** is still create-next-app boilerplate; not product documentation.
-12. `gp_settings` row counts are volatile point-in-time observations, not architecture. Do not treat a specific count as a product fact.
+1. **Hardcoded Supabase URL and anon key** in `src/lib/supabaseClient.ts` instead of env vars.
+2. **Login “email not found” path queries `.from('users')`**, but **no `public.users` table exists** (only `auth.users`).
+3. **Duplicated rule types** in `src/app/gp-setup/custom/page.tsx` vs `src/types/rules.ts`.
+4. Setup page keeps UX-only overlap/gap helpers; final save validity is `validateRuleSetForPricing`.
+5. **Orphan route** `/gp-setup/custom` — no in-app navigation links found.
+6. **Emoji-prefixed duplicate components** under `src/components/rules/` (`📄 *.tsx`).
+7. **No Next middleware** — protection is per-page `getSession` only.
+8. **README** is still create-next-app boilerplate.
+9. **Legacy rule gaps** that previously fell through to silent 70% now fail closed in the calculator until the rule set is corrected.
+10. `gp_settings` row counts are volatile point-in-time observations, not architecture.
 
 ---
 
@@ -345,11 +329,12 @@ Supported by the repository / live DB (not invented):
 | Area | State |
 |------|--------|
 | Auth (signup/login/logout) | Implemented and used |
-| Calculator + rounding | Implemented (commits specifically mention 50p / £ rounding) |
+| Calculator + shared pricing engine | Implemented (`src/lib/pricing`) |
+| Financial Vitest suite | Implemented |
 | GP rule editor with gap/overlap UX | Implemented on `/gp-setup` |
-| Custom multi-step wizard | Code exists; appears unfinished relative to main editor (unlinked) |
+| Custom multi-step wizard | Code exists; unlinked orphan |
+| User-configurable policy / serving sizes UI | Not implemented (Stage 3) |
 | Env-based configuration | Not implemented |
-| Tests / CI config in repo | Not present |
 | API layer | Not present (by design currently) |
 | Multi-tenant / org features | Not present |
 
@@ -359,14 +344,14 @@ Commit history language (“Final Update”, etc.) suggests the author considere
 
 ## Guidance for Future AI Developers
 
-1. **Do not change pricing formulas casually.** Any change to `calculatePrice`, BTG bottle discount, pour scaling, or rounding is a product/finance change — add tests if you touch it.
-2. Prefer putting shared calculation and rule-matching in **`src/lib/`** (e.g. extract from `page.tsx`) and keep UI thin — but match existing patterns unless asked to refactor.
-3. Use **`src/types/rules.ts`** as the single source of truth for rule shapes; avoid new inline copies.
-4. Prefer **`src/lib/gpRules.ts`** for validation helpers; wire GP setup to the shared `validateRules` instead of forking logic.
+1. **Do not change pricing formulas casually.** Change `src/lib/pricing` and extend `pricing.test.ts`.
+2. Keep calculator UI thin; calculation belongs in the pricing domain.
+3. Use **`src/types/rules.ts`** as the single source of truth for rule shapes.
+4. Prefer **`src/lib/gpRules.ts`** for form helpers; engine structural checks use `validateRuleSetForPricing`.
 5. Ignore or delete emoji-prefixed `📄` rule files only when explicitly asked; do not import them.
 6. Do not introduce a `service_role` key in client code.
-7. After calculation or rule changes, manually verify: universal GP, less/between/greater bands, BTG vs bottle, Dry/Sweet/Sparkling pour lists, Half/Magnum/Other ml.
-8. Run `npm run lint` and `npm run build` after substantive edits (only scripts that exist).
+7. After calculation or rule changes, run `npm test` and manually smoke the calculator.
+8. Run `npm test`, `npm run lint`, and `npm run build` after substantive edits.
 9. Schema changes belong in Supabase (migrations/dashboard), not only TypeScript — keep `DATA_MODEL.md` updated.
 10. Never commit real secrets; if moving credentials to env, use placeholders in docs and `.env.example` only.
 

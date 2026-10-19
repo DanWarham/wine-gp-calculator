@@ -35,7 +35,7 @@ export default function AllGpRuleForm({
     setInputValue(sanitized)
     
     if (!validateInput(sanitized, true)) {
-      setError("Please enter a number between 1 and 100")
+      setError("Please enter a number from 1 up to but not including 100")
       return
     }
     

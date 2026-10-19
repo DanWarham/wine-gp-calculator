@@ -44,8 +44,10 @@ Only scripts defined in `package.json`:
 | Production build | `npm run build` | `next build` |
 | Start production | `npm run start` | `next start` (after build) |
 | Lint | `npm run lint` | `eslint .` (ESLint CLI; `next lint` deprecated from Next 15.5) |
+| Test | `npm test` | `vitest run` (pricing domain financial suite) |
+| Test watch | `npm run test:watch` | `vitest` |
 
-**Not present in `package.json`:** test runner, typecheck script, DB migrate, seed, format, storybook, etc.
+**Not present in `package.json`:** typecheck script, DB migrate, seed, format, storybook, etc.
 
 ---
 
@@ -113,20 +115,22 @@ To inspect live schema (operators with project access): Supabase dashboard SQL e
 
 | Area | Status |
 |------|--------|
-| Unit / integration / e2e tests | **None** found (`*.test.*`, `*.spec.*`, `__tests__` absent) |
-| Test script in package.json | **None** |
-| Manual QA focus | Pricing formula, rounding, rule gaps/overlaps, auth redirects, empty-rules modal |
+| Pricing domain unit tests | **Vitest** — `src/lib/pricing/pricing.test.ts` |
+| Test scripts | `npm test`, `npm run test:watch` |
+| E2E / UI tests | Not present |
+| Manual QA focus | Calculator UX, auth redirects, empty-rules modal, BTG display, custom bottle error path |
 
-**Important gap:** Financial calculations have no automated regression tests. Any change to `calculatePrice`, `calculateGP`, BTG discount, or rounding should be manually verified against known cost/GP fixtures (and ideally gain tests when the project adds a test runner).
+Any change to `src/lib/pricing` must update/extend the Vitest suite and pass `npm test`.
 
-Suggested smoke checklist after calculation changes:
+Suggested manual smoke checklist after calculator/UI changes:
 
-1. Universal GP 70% → known cost → expected bottle price.
-2. Between-rule interpolation at min, mid, max.
-3. BTG: pours visible; bottle ≈ 95% of non-BTG bottle before pour scaling.
+1. Universal GP → known cost → expected bottle price.
+2. Between-rule interpolation retains fractional GP in pricing.
+3. BTG: pours visible; bottle discounted; pours use undiscounted basis.
 4. Bottle rounds to whole £; pours to `x.00` or `x.50`.
-5. Dry/Sweet/Sparkling size lists.
-6. Half / Magnum / custom ml.
+5. Dry/Sweet/Sparkling size lists (Sparkling 125 + 150).
+6. Half / Magnum / valid custom ml; invalid custom ml shows error (no silent 750).
+7. Uncovered rule cost shows explicit error (no 70% fallback).
 
 ---
 
@@ -150,7 +154,7 @@ Patterns already present — prefer consistency over inventing a new style guide
 ### Prefer
 
 - Reuse `@/types/rules` and `@/lib/gpRules` rather than copying types/validators.
-- Keep money math in one place (today: home page — extract carefully if needed).
+- Keep money math in `src/lib/pricing` only.
 - Use non-emoji rule component filenames (`AllGpRuleForm.tsx`, etc.).
 
 ### Avoid (unless explicitly requested)

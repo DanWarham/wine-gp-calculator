@@ -4,7 +4,7 @@ Detailed technical architecture reference. Companion to [`AI_CONTEXT.md`](./AI_C
 
 **Documentation authority:** Repository/database evidence determines current implementation. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting structural detail. If sources materially disagree, investigate rather than silently reconciling them.
 
-This document describes the **current** client/Supabase structure. Planned sales import, scenarios, and the shared pricing engine are intended architecture — see `05` — and are **not** present in the application yet.
+This document describes the **current** client/Supabase structure. The shared pricing engine in `src/lib/pricing` is implemented (Stage 2). Sales import, scenarios, and user-configurable policy/serving-size UI remain future work — see `05`.
 
 ---
 
@@ -15,7 +15,8 @@ The app is a thin **Next.js frontend** over **Supabase Auth + Postgres**. There 
 | Layer | Responsibility | Location |
 |-------|----------------|----------|
 | Presentation | Pages, forms, tables, modals, toasts | `src/app/**`, `src/components/**` |
-| Domain (client) | GP selection, price math, rule validation helpers | `src/app/page.tsx`, `src/lib/gpRules.ts`, `src/types/rules.ts` |
+| Pricing domain | Deterministic GP resolution, pricing, rounding, validation | `src/lib/pricing/**` |
+| Form helpers | Input sanitize/validate for rule editor | `src/lib/gpRules.ts`, `src/types/rules.ts` |
 | Integration | Supabase JS client | `src/lib/supabaseClient.ts` |
 | Platform | Auth sessions, RLS, JSONB storage | Supabase project (hosted) |
 
@@ -24,7 +25,7 @@ flowchart TB
   subgraph client ["Browser — Next.js App Router"]
     Pages["Pages\nwelcome / login / signup /\nhome calculator / gp-setup"]
     UI["UI components\nshadcn + Headless UI"]
-    Domain["Client domain logic\ncalculateGP / calculatePrice\nrule validation"]
+    Domain["Pricing domain\nsrc/lib/pricing"]
     SBClient["supabase-js client"]
     Pages --> UI
     Pages --> Domain
@@ -257,7 +258,7 @@ flowchart LR
   gpsetup["gp-setup page"] --> headless["@headlessui/react"]
 ```
 
-**Notable absences:** testing libraries, ORM, form libraries, state libraries, env validation (`zod` + `t3-env`, etc.).
+**Notable absences:** E2E test framework, ORM, form libraries, state libraries, env validation (`zod` + `t3-env`, etc.). Domain unit tests use Vitest.
 
 ---
 
@@ -266,16 +267,15 @@ flowchart LR
 ```mermaid
 flowchart TD
   A[Enter cost ex VAT + options] --> B[Load rules from gp_settings]
-  B --> C[calculateGP → suggested GP]
+  B --> C[resolveTargetGp via 750ml reference cost]
   C --> D[User may nudge GP ±1%]
-  D --> E[calculatePrice with VAT 20%]
+  D --> E[priceWithGp + DEFAULT_PRICING_POLICY]
   E --> F{BTG?}
-  F -->|Yes| G[Show pours + bottle at 95%]
+  F -->|Yes| G[Bottle line discounted; pours undiscounted basis]
   F -->|No| H[Show bottle only]
-  G --> I[Scale by ml / bottle ml]
+  G --> I[Round via policy increments]
   H --> I
-  I --> J[Round: £ for bottle, 50p for pours]
-  J --> K[Display price table]
+  I --> J[Display price table or explicit error]
 ```
 
 Rule persistence flow (setup):

@@ -18,6 +18,7 @@ import {
   BetweenRule,
   AllGpRule
 } from '@/types/rules'
+import { validateRuleSetForPricing } from '@/lib/pricing'
 
 export default function GPSetupPage() {
   const router = useRouter()
@@ -227,73 +228,7 @@ export default function GPSetupPage() {
     setTempRule(newLessThan)
   }
 
-  const validateRules = (): boolean => {
-    if (!rules.length) {
-      setError("You must have at least one rule.")
-      return false
-    }
-  
-    if (rules.length === 1 && rules[0].type === 'all_gp') {
-      return true // ✅ Universal rule is valid on its own
-    }
-  
-    const sorted = [...rules].filter(r => r.type !== 'all_gp').sort((a, b) => {
-      if (a.type === 'less_than' && b.type === 'between') return (a as LessThanRule).max - (b as BetweenRule).min
-      if (a.type === 'between' && b.type === 'between') return (a as BetweenRule).min - (b as BetweenRule).min
-      if (a.type === 'between' && b.type === 'greater_than') return (a as BetweenRule).max - (b as GreaterThanRule).min
-      if (a.type === 'less_than' && b.type === 'greater_than') return (a as LessThanRule).max - (b as GreaterThanRule).min
-      return 0
-    })
-  
-    let expectedMin = (sorted[0] as LessThanRule).max
-  
-    for (let i = 1; i < sorted.length; i++) {
-      const current = sorted[i]
-      if ('min' in current && current.min !== expectedMin) {
-        return false
-      }
-      if ('max' in current) {
-        expectedMin = current.max
-      }
-    }
-  
-    return true
-  }
-
-  const fillGaps = () => {
-    let filled = false
-    const sorted = [...rules].filter(r => r.type !== 'all_gp').sort((a, b) => {
-      if (a.type === 'less_than') return -1
-      if (b.type === 'less_than') return 1
-      if (a.type === 'greater_than') return 1
-      if (b.type === 'greater_than') return -1
-      return (a as BetweenRule).min - (b as BetweenRule).min
-    })
-
-    let expectedMin = (sorted[0] as LessThanRule).max
-
-    for (let i = 1; i < sorted.length; i++) {
-      const current = sorted[i] as BetweenRule | GreaterThanRule
-      if (current.min !== expectedMin) {
-        const lessThan = rules.find(r => r.type === 'less_than') as LessThanRule
-        const greaterThan = rules.find(r => r.type === 'greater_than') as GreaterThanRule
-        const newRule: BetweenRule = {
-          type: 'between',
-          min: expectedMin,
-          max: current.min,
-          start_gp: lessThan.gp,
-          end_gp: greaterThan.gp
-        }
-        sorted.splice(i, 0, newRule)
-        filled = true
-      }
-      expectedMin = (current as BetweenRule).max || (current as GreaterThanRule).min
-    }
-    setRules(sorted)
-    return filled
-  }
-
-  // Gap analysis function
+  // Gap analysis function (editor UX assistance — not the calculation-validity authority)
   function analyzeGaps(rules: Rule[]): { min: number, max: number }[] {
     const filtered = rules.filter(r => r.type !== 'all_gp').sort((a, b) => {
       if (a.type === 'less_than' && b.type === 'between') return (a as LessThanRule).max - (b as BetweenRule).min
@@ -317,7 +252,7 @@ export default function GPSetupPage() {
     return result
   }
 
-  // Modified saveRules to check for overlaps
+  // Save path: editor UX helpers → pricing-domain authority → persist
   const saveRules = async () => {
     let rulesToCheck = rules;
     if (editingIndex !== null && tempRule) {
@@ -325,31 +260,24 @@ export default function GPSetupPage() {
       const ruleToSave = { ...tempRule } as Rule;
       rulesToCheck[editingIndex] = ruleToSave;
     }
-    // Check for overlaps
+    // Editor assistance: overlap messaging
     const overlap = findOverlappingRules(rulesToCheck)
     if (overlap) {
       setError(`Rule for £${'min' in overlap.a ? overlap.a.min : 0}–£${'max' in overlap.a ? overlap.a.max : '∞'} overlaps with rule for £${'min' in overlap.b ? overlap.b.min : 0}–£${'max' in overlap.b ? overlap.b.max : '∞'}`)
       return
     }
+    // Editor assistance: gap detection / suggest missing rules
     const foundGaps = analyzeGaps(rulesToCheck)
     if (foundGaps.length > 0) {
       setGaps(foundGaps)
       setGapModalOpen(true)
       return
     }
-    if (!validateRules()) {
-      if (!rules.length) return
-      try {
-        if (!fillGaps()) {
-          setError("There are gaps in your rules and they cannot be auto-filled.")
-          return
-        }
-        alert("Some gaps were filled automatically. Please review the generated rules.")
-      } catch (e) {
-        console.error("Gap filling failed:", e)
-        setError("An error occurred while trying to auto-fill gaps.")
-        return
-      }
+    // Authoritative calculation-validity check (must match pricing engine)
+    const pricingValidationError = validateRuleSetForPricing(rulesToCheck)
+    if (pricingValidationError) {
+      setError(pricingValidationError.message)
+      return
     }
     setSaving(true)
     setSuccess(false)
@@ -439,6 +367,11 @@ export default function GPSetupPage() {
       <Card className="shadow-md">
         <CardContent className="space-y-8 py-8">
           <h1 className="text-2xl font-bold text-center mb-6">Setup Your GP Rules</h1>
+
+          <p className="text-sm text-gray-600 text-center -mt-4 mb-2">
+            GP rule cost bands use the equivalent acquisition cost of a 750ml bottle.
+            Half bottles, magnums and custom sizes are normalised automatically when pricing.
+          </p>
 
           {success && <p className="text-green-600 text-center">✅ Rules saved successfully!</p>}
           {error && <p className="text-red-600 text-center">{error}</p>}

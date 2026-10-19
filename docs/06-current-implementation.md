@@ -61,73 +61,79 @@ Auth protection is per-page `supabase.auth.getSession()` only.
 
 ## Current Financial Implementation
 
-Financial logic still lives primarily in **`src/app/page.tsx`** (client component). This is **not** yet the shared deterministic pricing engine described in [`05-project-architecture.md`](./05-project-architecture.md).
+**Authoritative pricing domain:** `src/lib/pricing/` (pure TypeScript; no React/Supabase).
 
-Rule input helpers live in `src/lib/gpRules.ts`; canonical rule types in `src/types/rules.ts`.
+The calculator (`src/app/page.tsx`) collects inputs and displays results; it calls `resolveTargetGp` / `priceWithGp` rather than embedding formula logic.
 
-Where behaviour below differs from established domain decisions in `05`, treat the code as **legacy** until Pricing Engine Stage 2 replaces it. Do not describe Stage-2 behaviour as already implemented.
+Canonical rule types: `src/types/rules.ts`. UI input helpers: `src/lib/gpRules.ts`. Default commercial policy: `DEFAULT_PRICING_POLICY` in `src/lib/pricing/defaults.ts`.
 
-### Cost treatment
+Automated financial regression tests: `src/lib/pricing/pricing.test.ts` via Vitest (`npm test`).
 
-Cost is entered and matched as **ex-VAT**. Rules currently match on that **actual** ex-VAT cost directly.
+### Cost treatment and 750ml rule normalisation
 
-**Legacy gap vs architecture:** there is **no** 750ml-equivalent reference-cost normalisation before rule evaluation today. Intended behaviour (match on `actualCostExVat × 750 / bottleSizeMl`, apply GP to actual cost) is established in `05` but not implemented.
+Acquisition cost is **ex-VAT**.
 
-### Rule selection — `calculateGP(cost, isBTG, rules)`
-
-1. Empty rules → **70** (legacy silent fallback).
-2. Any `all_gp` → that rule’s `gp` (first match).
-3. Else first matching band in array order:
-   - `less_than`: `cost < max`
-   - `greater_than`: `cost > min`
-   - `between`: `min ≤ cost ≤ max`, linear interpolate `start_gp → end_gp`
-4. No match → **70** (legacy silent fallback).
-5. **`isBTG` is accepted but unused.**
-
-### Whole-% GP rounding (legacy)
-
-Caller applies `Math.round(suggested)` to both suggested and active GP before pricing.
-
-**Legacy gap vs architecture:** established decision is full calculation precision through to final commercial price rounding; UI may format GP for display without changing the calculation input.
-
-### Selling-price formula — `calculatePrice(cost, gp)`
+Rule matching uses:
 
 ```text
-VAT_RATE = 0.2
-sellingPrice = (cost * (1 + VAT_RATE)) / (1 - gp / 100)
+referenceCost750ml = actualCostExVat × 750 / bottleSizeMl
 ```
 
-### VAT, BTG, scaling, rounding
+Resolved GP is applied to **actualCostExVat** in the selling-price formula.
 
-| Step | Current behaviour |
-|------|-------------------|
-| VAT | Hardcoded 20%; cost inflated inside formula |
-| BTG bottle | If BTG and size is Bottle: `basePrice *= 0.95` |
-| Scaling | `(basePrice / baseBottleMl) * ml` |
-| Bottle round | Nearest £ (`Math.round`) |
-| Pour round | Nearest £0.50 (`Math.round(price * 2) / 2`) |
+### Rule resolution
 
-`baseBottleMl`: Half 375 / Bottle 750 / Magnum 1500 / Other `parseInt` else silent **750**.
+1. Empty / structurally invalid rules → explicit failure (no silent 70% fallback).
+2. `all_gp` → that rule’s `gp`.
+3. Else unique covering band for the reference cost:
+   - `less_than`: `cost < max`
+   - `greater_than`: `cost > min`
+   - `between`: `min ≤ cost ≤ max`, linear interpolate `start_gp → end_gp` (**full precision**)
+4. No match or conflicting multi-match → explicit failure.
 
-Pour catalogues are hardcoded `WINE_SIZES` by wine type — **not** user-configurable serving sizes.
+### GP precision and validity
 
-**BTG semantics (current code):** the 5% reduction applies only to the Bottle line when BTG is on; pours scale from the undiscounted base. That commercial shape matches the established BTG decision in `05`; what remains legacy is that VAT, discount factor, rounding, and serving sizes are **hardcoded**, not user-configurable policy.
+- Interpolation and pricing retain full calculation precision (no whole-% round before pricing).
+- UI may format GP for display without changing the calculation value.
+- Valid margin GP: `0 < GP < 100`. GP ≥ 100 is rejected.
+- Manual nudge/override uses the same bounds via `priceWithGp` / `isValidGp`.
 
-### Fallback behaviour (legacy)
+### Selling-price formula
 
-Silent **70%** when rules are empty or no band matches.
+```text
+sellingPriceIncVat =
+(actualCostExVat × (1 + vatRate))
+/
+(1 - gp / 100)
+```
 
-**Legacy only.** Established architecture requires an explicit validation/calculation failure for uncovered / unresolvable reference costs — see [`05-project-architecture.md`](./05-project-architecture.md). Document the 70% path here solely as current implementation until Stage 2 removes it.
+### Pricing policy (Stage-2 defaults; not yet user-configurable UI)
 
-### Known unsafe edges (current)
+| Field | Default |
+|-------|---------|
+| `vatRate` | `0.2` (20%) |
+| `btgBottleDiscount` | `0.05` (5%) |
+| `bottleRoundingIncrement` | `1` (£1) |
+| `pourRoundingIncrement` | `0.5` (£0.50) |
 
-| Issue | Behaviour | vs established architecture |
-|-------|-----------|------------------------------|
-| **GP = 100** | Allowed by validators/nudge (`[1, 100]`). Formula → **`Infinity`**. | Must reject; require `GP < 100`; max follows input precision (e.g. 99.9%). |
-| **Degenerate `between`** (`min === max`) | Division by zero → **NaN** GP → NaN prices. | Must fail explicitly. |
-| **Precision loss** | Fractional interpolated GP forced to whole % before pricing. | Must retain full calculation precision. |
-| **Silent 70% fallback** | Empty/unmatched rules → 70. | Must fail explicitly. |
-| **No 750ml normalisation** | Rules match raw bottle cost. | Must match 750ml-equivalent reference cost. |
+### BTG, scaling, rounding
+
+| Step | Behaviour |
+|------|-----------|
+| BTG bottle | Discount applies only to displayed full-bottle line |
+| Pours | Scale from **undiscounted** bottle-equivalent raw price |
+| Rounding | `roundToIncrement` with policy increments |
+
+Bottle sizes: 375 / 750 / 1500 / custom positive ml. **Invalid custom volume fails** in the pricing domain (no silent 750ml fallback).
+
+Pour catalogues remain hardcoded `WINE_SIZES` (Sparkling includes 125ml and 150ml) until Stage 3.
+
+### Remaining Stage-3 gaps (not Stage-2 defects)
+
+- User-configurable pricing-policy persistence/UI
+- User-configurable serving sizes
+- Pricing configuration versioning
+- Setup-page `validateRules` still duplicated vs `gpRules.ts` (editor UX; engine has `validateRuleSetForPricing`)
 
 ---
 
@@ -154,8 +160,9 @@ Primary UX on `/gp-setup`:
 
 ### Duplication / drift risks
 
-- Inline `Rule` copies in `src/app/page.tsx` and `src/app/gp-setup/custom/page.tsx` vs `@/types/rules`.
-- Local `validateRules` on `/gp-setup` shadows unused export in `src/lib/gpRules.ts`.
+- Calculator imports `@/types/rules`; orphan `/gp-setup/custom` still has inline Rule copies.
+- `/gp-setup` save path uses `validateRuleSetForPricing` as the authoritative final check; page retains UX-only overlap/gap helpers.
+- `src/lib/gpRules.validateRules` performs field completeness then delegates structural checks to the pricing domain.
 - Emoji-prefixed unused rule form duplicates under `src/components/rules/`.
 
 ---
@@ -219,10 +226,9 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 
 | Area | Reality |
 |------|---------|
-| Automated financial tests | **None** |
-| Test runner / `*.test.*` / `*.spec.*` | **Absent** |
-| Scripts | `dev`, `build`, `start`, `lint` (`eslint .`) only |
-| Manual validation | Expected for pricing, rounding, rule gaps/overlaps, auth |
+| Automated financial tests | **Vitest** domain suite in `src/lib/pricing/pricing.test.ts` |
+| Scripts | `dev`, `build`, `start`, `lint`, `test`, `test:watch` |
+| Manual validation | Still expected for calculator UX smoke (auth, rule setup, BTG display) |
 
 ---
 
@@ -255,20 +261,13 @@ Establishing source-controlled migrations is an intended prerequisite before sal
 
 Prioritised for orientation (not exhaustive assessment dump):
 
-1. Pricing logic embedded in calculator UI (`page.tsx`).
-2. No automated financial tests.
-3. GP = 100 → `Infinity` (architecture requires `GP < 100`).
-4. Degenerate `between` bands → `NaN`.
-5. Whole-% rounding of interpolated GP (architecture requires full precision).
-6. Silent fallback GP 70 (architecture requires explicit failure).
-7. No 750ml-equivalent rule-cost normalisation.
-8. Pricing policy and serving sizes hardcoded (architecture: user-configurable).
-9. Duplicated rule types / `validateRules`.
-10. Orphan `/gp-setup/custom`.
-11. Unused emoji-prefixed rule form duplicates.
-12. Broken `public.users` login lookup.
-13. Hardcoded Supabase configuration.
-14. Absent schema migrations in source control.
+1. Pricing policy / serving sizes still default/hardcoded in UI (Stage 3 configurability).
+2. Orphan `/gp-setup/custom`.
+3. Unused emoji-prefixed rule form duplicates.
+4. Broken `public.users` login lookup.
+5. Hardcoded Supabase configuration.
+6. Absent schema migrations in source control.
+7. Persisted rule sets that historically relied on silent 70% gap behaviour will now surface explicit calculator errors until rules are fixed.
 
 ---
 
@@ -277,15 +276,16 @@ Prioritised for orientation (not exhaustive assessment dump):
 | Capability | Status |
 |------------|--------|
 | Auth (signup / login / logout) | **Implemented** |
-| Individual wine calculator | **Implemented** (legacy financial path) |
+| Individual wine calculator | **Implemented** (uses shared engine) |
 | Pricing rule editing + GP persistence | **Implemented** |
-| Shared deterministic pricing engine | **Not implemented** |
-| 750ml reference-cost rule matching | **Not implemented** |
-| Full-precision GP through final rounding | **Not implemented** (legacy whole-% round) |
-| Explicit failure on uncovered rules | **Not implemented** (legacy 70% fallback) |
-| User-configurable pricing policy | **Not implemented** (hardcoded defaults) |
+| Shared deterministic pricing engine | **Implemented** (`src/lib/pricing`) |
+| 750ml reference-cost rule matching | **Implemented** |
+| Full-precision GP through final rounding | **Implemented** |
+| Explicit failure on uncovered rules | **Implemented** |
+| Automated financial tests | **Implemented** (Vitest) |
+| Explicit pricing-policy type + defaults | **Implemented** (UI config Stage 3) |
+| User-configurable pricing policy UI | **Not implemented** |
 | User-configurable serving sizes | **Not implemented** (hardcoded `WINE_SIZES`) |
-| Automated financial tests | **Not implemented** |
 | Pricing rule/policy versioning | **Not implemented** |
 | Sales import | **Not implemented** |
 | Canonical sales model | **Not implemented** |
