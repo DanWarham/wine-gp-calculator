@@ -52,10 +52,10 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 | **Cost price** | Purchase cost **excluding VAT**. Label: “Cost Price (ex VAT)”. | `src/app/page.tsx` |
 | **Selling price** | Customer-facing price in £, derived from cost + VAT treatment + GP. | `src/lib/pricing` |
 | **VAT / tax** | User policy `vatRate` (default `0.2` = 20%). Applied inside the selling-price formula. | `pricing_policy` / Settings |
-| **Wine type** | `Dry`, `Sweet` (UI: “Sweet/Fortified”), or `Sparkling`. Controls which pour sizes are offered. | `WINE_SIZES` in `src/app/page.tsx` |
+| **Wine type** | `Dry`, `Sweet` (UI: “Sweet/Fortified”), or `Sparkling`. Maps to fixed serving-size categories. | `wineCategories.ts` / `serving_sizes` |
 | **Bottle pricing** | Price for a full bottle (Half 375ml / Bottle 750ml / Magnum 1500ml / Other custom ml). Rounded to nearest £. | Home page |
 | **Glass / pour pricing** | ml-based servings when “Selling By the Glass”. Rounded to nearest 50p. | Home page |
-| **Pour sizes** | Dry: 125, 175, 250, 500 ml + Bottle. Sweet: 75 ml + Bottle. Sparkling: 150 ml + Bottle. | `WINE_SIZES` |
+| **Pour sizes** | User-configured per category (defaults: Dry 125/175/250/500; Sparkling 125/150; Sweet 75). Bottle is separate. | `serving_sizes` / Settings |
 | **BTG (By The Glass)** | Toggle `isBTG`. When true, shows pour rows and applies the user’s BTG bottle discount (default 5%) to the bottle line only. | Home page + Settings |
 | **Pricing rules** | JSON rules mapping cost bands → GP %. Types: `all_gp`, `less_than`, `between`, `greater_than`. | `src/types/rules.ts` |
 | **Universal GP** | Single `all_gp` rule: one GP for all costs. | Setup UI |
@@ -123,11 +123,11 @@ Product defaults (`DEFAULT_PRICING_POLICY` / DB column defaults): VAT 20%, BTG b
 
 **Source:** `src/app/page.tsx`
 
-1. After auth, load/ensure Pricing Policy via `getOrCreatePricingPolicy` and load GP rules from `gp_settings`.
+1. After auth, load/ensure Pricing Policy (first-use also seeds default Serving Sizes), load Serving Sizes, and load GP rules.
 2. Resolve suggested GP via `resolveTargetGp` (full precision into state; display may format).
 3. User may nudge GP ±1% while `0 < GP < 100`.
-4. Each visible size row calls `priceWithGp` with active GP and the **persisted** pricing policy.
-5. Errors (policy load, gap, invalid bottle size, invalid GP) surface as messages — not invented prices.
+4. Bottle row always uses `priceWithGp` with persisted policy; when BTG, enabled serving sizes for the selected category are priced in `display_order` (label · ml).
+5. Errors (policy/serving load, gap, invalid bottle size, invalid GP) surface as messages — not invented prices or hardcoded pour catalogues.
 
 **Bottle-only mode:** when `!isBTG`, only the bottle row is shown.
 
@@ -184,7 +184,7 @@ Custom wizard at `/gp-setup/custom` remains an unlinked orphan route.
 | Custom setup wizard | Multi-step less/greater/between | `src/app/gp-setup/custom/page.tsx` (unlinked) |
 | Toasts | Success/error messages (login/signup) | `src/components/toast-provider.tsx` |
 
-**Not present:** wine inventory, multi-venue accounts, user-facing policy/serving-size config UI, server API routes, Next.js middleware auth guards.
+**Not present:** wine inventory, multi-venue accounts, user-defined wine categories, server API routes, Next.js middleware auth guards.
 
 ---
 
@@ -335,7 +335,7 @@ Supported by the repository / live DB (not invented):
 | GP rule editor with gap/overlap UX | Implemented on `/gp-setup` |
 | Custom multi-step wizard | Code exists; unlinked orphan |
 | User-configurable pricing policy UI | Implemented (`/settings`, Stage 3B) |
-| User-configurable serving sizes UI | Not implemented (Stage 3C) |
+| User-configurable serving sizes UI | Implemented (`/settings`, Stage 3C) |
 | Env-based configuration | Not implemented |
 | API layer | Not present (by design currently) |
 | Multi-tenant / org features | Not present |

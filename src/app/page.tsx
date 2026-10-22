@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { sanitizeInput, validateInput } from '@/lib/gpRules'
 import type { Rule } from '@/types/rules'
+import type { ServingSize } from '@/types/servingSizes'
 import {
   isValidGp,
   isValidPositiveMl,
@@ -16,6 +17,8 @@ import {
   type PricingPolicy,
 } from '@/lib/pricing'
 import { getOrCreatePricingPolicy } from '@/lib/pricingPolicyStore'
+import { listServingSizes, servingSizesForCalculator } from '@/lib/servingSizeStore'
+import { WINE_TYPE_OPTIONS, wineTypeToCategory, type WineTypeValue } from '@/lib/wineCategories'
 
 /** Display-only GP formatting. Does not alter the value passed into pricing. */
 function formatGpDisplay(gp: number): string {
@@ -41,7 +44,7 @@ export default function Page() {
   const router = useRouter()
 
   const [costPriceInput, setCostPriceInput] = useState<string>("")
-  const [wineType, setWineType] = useState<string>("Dry")
+  const [wineType, setWineType] = useState<WineTypeValue>("Dry")
   const [isBTG, setIsBTG] = useState<boolean>(false)
   const [gp, setGp] = useState<number>(75)
   const [suggestedGp, setSuggestedGp] = useState<number>(75)
@@ -50,17 +53,12 @@ export default function Page() {
   const [rules, setRules] = useState<Rule[]>([])
   const [pricingPolicy, setPricingPolicy] = useState<PricingPolicy | null>(null)
   const [policyError, setPolicyError] = useState<string | null>(null)
+  const [servingSizes, setServingSizes] = useState<ServingSize[] | null>(null)
+  const [servingSizesError, setServingSizesError] = useState<string | null>(null)
   const [loadingSession, setLoadingSession] = useState(true)
   const [showSetupModal, setShowSetupModal] = useState(false)
   const [costPriceError, setCostPriceError] = useState<string | null>(null)
 
-  const WINE_SIZES: Record<string, string[]> = {
-    Dry: ["125", "175", "250", "500", "Bottle"],
-    Sweet: ["75", "Bottle"],
-    Sparkling: ["125", "150", "Bottle"]
-  }
-
-  const availableSizes = WINE_SIZES[wineType] || []
   const costPrice = costPriceInput === '' ? NaN : parseFloat(costPriceInput)
 
   const [bottleSize, setBottleSize] = useState<string>("Bottle")
@@ -73,6 +71,12 @@ export default function Page() {
     : bottleSize === "Half" ? "Half Bottle"
     : bottleSize === "Bottle" ? "Bottle"
     : "Magnum"
+
+  const category = wineTypeToCategory(wineType)
+  const enabledServings = useMemo(() => {
+    if (!servingSizes || !category) return []
+    return servingSizesForCalculator(servingSizes, category)
+  }, [servingSizes, category])
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -92,6 +96,15 @@ export default function Page() {
       } else {
         setPolicyError(null)
         setPricingPolicy(policyResult.policy)
+      }
+
+      const servingsResult = await listServingSizes(user.id)
+      if (!servingsResult.ok) {
+        setServingSizesError(servingsResult.error)
+        setServingSizes(null)
+      } else {
+        setServingSizesError(null)
+        setServingSizes(servingsResult.data)
       }
 
       const { data, error } = await supabase
@@ -196,6 +209,28 @@ export default function Page() {
     )
   }
 
+  if (servingSizesError || servingSizes === null) {
+    return (
+      <main className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
+        <p className="text-red-600">
+          {servingSizesError ?? 'Serving sizes could not be loaded. Pour prices are unavailable.'}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => router.push('/settings')}>
+            Open Settings
+          </Button>
+          <Button
+            onClick={handleLogout}
+            variant="outline"
+            className="text-red-600 border-red-400 hover:bg-red-50"
+          >
+            Logout
+          </Button>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="p-4 md:p-8 max-w-2xl mx-auto">
       <div className="flex flex-wrap gap-2 justify-between mb-4">
@@ -227,7 +262,6 @@ export default function Page() {
 
       <Card className="shadow-md">
         <CardContent className="space-y-8 py-8">
-          {/* INPUT FIELDS */}
           <div className="space-y-4">
             <label className="block text-sm font-semibold text-gray-700">Cost Price (ex VAT):</label>
             <Input
@@ -254,12 +288,14 @@ export default function Page() {
             <label className="block text-sm font-semibold text-gray-700">Wine Type:</label>
             <select
               value={wineType}
-              onChange={(e) => setWineType(e.target.value)}
+              onChange={(e) => setWineType(e.target.value as WineTypeValue)}
               className="w-full rounded-md border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="Dry">Dry</option>
-              <option value="Sweet">Sweet/Fortified</option>
-              <option value="Sparkling">Sparkling</option>
+              {WINE_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -334,39 +370,50 @@ export default function Page() {
                     </tr>
                   </thead>
                   <tbody>
-                    {availableSizes
-                      .filter(size => {
-                        if (!isBTG) return size === "Bottle"
-                        return true
+                    {(() => {
+                      const bottlePriced = priceWithGp({
+                        actualCostExVat: costPrice,
+                        bottleSizeMl: baseBottleMl,
+                        gp,
+                        pricingPolicy,
+                        saleContext: { kind: 'bottle', applyBtgDiscount: isBTG },
                       })
-                      .map((size) => {
-                        const isBottleRow = size === "Bottle"
-                        const priced = priceWithGp({
-                          actualCostExVat: costPrice,
-                          bottleSizeMl: baseBottleMl,
-                          gp,
-                          pricingPolicy,
-                          saleContext: isBottleRow
-                            ? { kind: 'bottle', applyBtgDiscount: isBTG }
-                            : { kind: 'pour', pourMl: parseInt(size, 10) },
-                        })
+                      const bottleDisplay = !bottlePriced.ok
+                        ? '—'
+                        : `£${bottlePriced.roundedSalePrice}`
 
-                        let displayPrice: string
-                        if (!priced.ok) {
-                          displayPrice = '—'
-                        } else if (isBottleRow) {
-                          displayPrice = `£${priced.roundedSalePrice}`
-                        } else {
-                          displayPrice = `£${priced.roundedSalePrice.toFixed(2)}`
+                      const rows: ReactNode[] = [
+                        <tr key="bottle" className="hover:bg-gray-100">
+                          <td className="border p-2 text-center">{bottleLabel}</td>
+                          <td className="border p-2 text-center">{bottleDisplay}</td>
+                        </tr>,
+                      ]
+
+                      if (isBTG) {
+                        for (const serving of enabledServings) {
+                          const priced = priceWithGp({
+                            actualCostExVat: costPrice,
+                            bottleSizeMl: baseBottleMl,
+                            gp,
+                            pricingPolicy,
+                            saleContext: { kind: 'pour', pourMl: serving.volumeMl },
+                          })
+                          const displayPrice = !priced.ok
+                            ? '—'
+                            : `£${priced.roundedSalePrice.toFixed(2)}`
+                          rows.push(
+                            <tr key={serving.id} className="hover:bg-gray-100">
+                              <td className="border p-2 text-center">
+                                {serving.label} · {serving.volumeMl}ml
+                              </td>
+                              <td className="border p-2 text-center">{displayPrice}</td>
+                            </tr>
+                          )
                         }
+                      }
 
-                        return (
-                          <tr key={size} className="hover:bg-gray-100">
-                            <td className="border p-2 text-center">{isBottleRow ? bottleLabel : `${size}ml`}</td>
-                            <td className="border p-2 text-center">{displayPrice}</td>
-                          </tr>
-                        )
-                      })}
+                      return rows
+                    })()}
                   </tbody>
                 </table>
               )}

@@ -53,7 +53,7 @@ Supabase Auth + Postgres (public.gp_settings, auth.users)
 | `/signup` | Email/password registration | Open signup |
 | `/` | Wine price calculator | Loads rules + pricing policy |
 | `/gp-setup` | Pricing Rules editor | GP bands; separate from Settings |
-| `/settings` | Pricing Policy settings | VAT, BTG discount, rounding |
+| `/settings` | Pricing Policy + Serving Sizes | VAT/BTG/rounding; per-category pour sizes |
 | `/gp-setup/custom` | Alternate multi-step wizard | **Unlinked/orphaned** — reachable by URL only; not intended architecture |
 
 Auth protection is per-page `supabase.auth.getSession()` only.
@@ -135,12 +135,12 @@ Defaults (DB column defaults + `DEFAULT_PRICING_POLICY` for tests/provisioning s
 
 Bottle sizes: 375 / 750 / 1500 / custom positive ml. **Invalid custom volume fails** in the pricing domain (no silent 750ml fallback).
 
-Pour catalogues remain hardcoded `WINE_SIZES` (Sparkling includes 125ml and 150ml) until Stage 3C.
+Pour catalogues are persisted per user in `serving_sizes` (Stage 3C). Defaults: Dry 125/175/250/500, Sparkling 125/150, Sweet/Fortified 75. Bottle is not a serving-size row.
 
-### Remaining Stage-3 gaps
+### Remaining gaps after Stage 3C
 
-- User-configurable serving sizes (Stage 3C)
 - Pricing configuration versioning
+- User-defined wine categories (explicitly deferred)
 - Setup-page overlap/gap UX helpers still local to `/gp-setup` (engine has `validateRuleSetForPricing`)
 
 ---
@@ -186,8 +186,9 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `auth.users` | Supabase Auth identities |
 | `public.gp_settings` | One JSONB GP rule document per user |
 | `public.pricing_policy` | One commercial pricing-policy row per user |
+| `public.serving_sizes` | User pour/carafe sizes within fixed categories |
 
-**No** sales, scenario, import, serving-size, or pricing-version tables.
+**No** sales, scenario, import, or pricing-version tables. Categories are not user-configurable.
 
 ### `public.gp_settings`
 
@@ -213,7 +214,20 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `created_at` / `updated_at` | `timestamptz` | |
 
 - **RLS:** select/insert/update own row for `authenticated` only.
-- **Migrations:** baseline `20261019134900` + additive `20261019223922_create_pricing_policy` (applied locally and remotely).
+- **Migrations:** baseline `20261019134900` + `20261019223922_create_pricing_policy` + `20261022104800_create_serving_sizes` (applied locally and remotely).
+
+### `public.serving_sizes` (Stage 3C)
+
+| Column | Notes |
+|--------|-------|
+| `category` | `dry` \| `sparkling` \| `sweet_fortified` |
+| `label` / `volume_ml` | Named pour; integer ml `> 0` |
+| `enabled` / `display_order` | Calculator shows enabled rows in order |
+| `user_id` | FK → `auth.users` ON DELETE CASCADE |
+
+- **RLS:** select/insert/update/delete own rows for `authenticated`.
+- **Provisioning:** seeded for existing users in migration; future users seeded only on first Pricing Policy creation.
+- **Helpers:** `src/lib/servingSizeStore.ts`, defaults in `src/lib/servingSizeDefaults.ts`.
 
 Row counts are volatile point-in-time observations and are not architectural facts.
 
@@ -258,7 +272,7 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 ## Database Development Workflow
 
 - Source-controlled Supabase migrations exist under `supabase/migrations/`.
-- Stage 3A baselined `gp_settings`; Stage 3B added `pricing_policy` via additive migration + `db push`.
+- Stage 3A baselined `gp_settings`; Stage 3B added `pricing_policy`; Stage 3C added `serving_sizes`.
 - Future application schema changes are **migration-first** (see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
 - Authority: migrations = intended/applied evolution; live Supabase = deployed state; this doc / `DATA_MODEL.md` = human-readable.
 - Dashboard-only schema edits should not be normal practice; reconcile any emergency manual changes into migrations.
@@ -285,13 +299,12 @@ Local Docker is not required merely to author or review migrations.
 
 Prioritised for orientation (not exhaustive assessment dump):
 
-1. Pricing policy / serving sizes still default/hardcoded in UI (Stage 3 configurability).
-2. Orphan `/gp-setup/custom`.
-3. Unused emoji-prefixed rule form duplicates.
-4. Broken `public.users` login lookup.
-5. Hardcoded Supabase configuration.
-6. Persisted rule sets that historically relied on silent 70% gap behaviour will now surface explicit calculator errors until rules are fixed.
-7. Serving sizes still hardcoded (`WINE_SIZES`) until Stage 3C.
+1. Orphan `/gp-setup/custom`.
+2. Unused emoji-prefixed rule form duplicates.
+3. Broken `public.users` login lookup.
+4. Hardcoded Supabase configuration.
+5. Persisted rule sets that historically relied on silent 70% gap behaviour will now surface explicit calculator errors until rules are fixed.
+6. Wine categories remain fixed (not user-configurable).
 
 ---
 
@@ -309,7 +322,7 @@ Prioritised for orientation (not exhaustive assessment dump):
 | Automated financial tests | **Implemented** (Vitest) |
 | Explicit pricing-policy type + defaults | **Implemented** |
 | User-configurable pricing policy UI + persistence | **Implemented** (`/settings`, `pricing_policy`) |
-| User-configurable serving sizes | **Not implemented** (hardcoded `WINE_SIZES`; Stage 3C) |
+| User-configurable serving sizes | **Implemented** (`serving_sizes`, Settings) |
 | Pricing rule/policy versioning | **Not implemented** |
 | Sales import | **Not implemented** |
 | Canonical sales model | **Not implemented** |

@@ -140,9 +140,11 @@ npx supabase migration list
 
 Requires Supabase CLI auth (`npx supabase login` or `SUPABASE_ACCESS_TOKEN`). Linking may also require the database password.
 
-### Stage 3B note
+### Stage 3B / 3C provisioning notes
 
 `pricing_policy` is owned per user. New authenticated users are provisioned by `getOrCreatePricingPolicy` in `src/lib/pricingPolicyStore.ts` (no `auth.users` trigger). Existing users were seeded in the Stage 3B migration with the commercial defaults (VAT 20%, BTG 5%, bottle £1, pour £0.50).
+
+`serving_sizes` rows are seeded for existing users in Stage 3C migration `20261022104800`. For **future** users, default serving sizes are inserted only when Pricing Policy is first created (same helper). An intentionally empty serving-size configuration is never silently reseeded just because the table is empty.
 
 After schema changes, update [`DATA_MODEL.md`](./DATA_MODEL.md) / [`06-current-implementation.md`](./06-current-implementation.md) and verify client queries still match.
 

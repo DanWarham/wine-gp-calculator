@@ -4,6 +4,7 @@ import {
   validatePricingPolicy,
   type PricingPolicy,
 } from '@/lib/pricing'
+import { seedDefaultServingSizes } from '@/lib/servingSizeStore'
 
 /** Row shape returned by PostgREST for public.pricing_policy. */
 export interface PricingPolicyRow {
@@ -64,6 +65,10 @@ function mapPostgrestError(error: { code?: string; message?: string } | null, fa
  * Load the authenticated user's pricing policy, creating a default row if none exists.
  * Relies on DB column defaults for product defaults (aligned with DEFAULT_PRICING_POLICY).
  * Does not fall back to in-memory defaults on failure.
+ *
+ * First-time policy creation also seeds default Serving Sizes (conflict-safe).
+ * An existing policy must never trigger Serving Size reseeding — an intentionally
+ * empty serving-size configuration stays empty.
  */
 export async function getOrCreatePricingPolicy(userId: string): Promise<PricingPolicyLoadResult> {
   const { data: existing, error: selectError } = await supabase
@@ -95,6 +100,11 @@ export async function getOrCreatePricingPolicy(userId: string): Promise<PricingP
     .single()
 
   if (!insertError && inserted) {
+    const seed = await seedDefaultServingSizes(userId)
+    if (!seed.ok) {
+      return { ok: false, error: seed.error }
+    }
+
     const policy = rowToPricingPolicy(inserted as PricingPolicyRow)
     const validation = validatePricingPolicy(policy)
     if (validation) {
@@ -104,6 +114,7 @@ export async function getOrCreatePricingPolicy(userId: string): Promise<PricingP
   }
 
   // Concurrent first-use: unique violation → re-select the winner's row.
+  // Do not seed serving sizes here — the winning session owns first-use seeding.
   if (insertError?.code === '23505') {
     const { data: raced, error: raceSelectError } = await supabase
       .from('pricing_policy')

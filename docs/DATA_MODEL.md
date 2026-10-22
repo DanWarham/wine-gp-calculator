@@ -18,10 +18,11 @@ If migrations and live state disagree, **investigate the drift** — do not sile
 |------|------|
 | `20261019134900_baseline_current_schema.sql` | Baseline of pre-existing `gp_settings` (Stage 3A; did not alter live schema) |
 | `20261019223922_create_pricing_policy.sql` | Additive `pricing_policy` table + RLS + seed (Stage 3B) |
+| `20261022104800_create_serving_sizes.sql` | Additive `serving_sizes` table + RLS + seed (Stage 3C) |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting schema/type detail. If sources materially disagree, investigate rather than silently reconciling them.
 
-Application tables today: `public.gp_settings`, `public.pricing_policy` (plus Supabase-managed `auth.users`). Sales, scenario, serving-size persistence, and versioning entities from `05` are **not** implemented.
+Application tables today: `public.gp_settings`, `public.pricing_policy`, `public.serving_sizes` (plus Supabase-managed `auth.users`). Sales, scenario, and versioning entities from `05` are **not** implemented. Wine categories are fixed (not user-configurable).
 
 ---
 
@@ -31,6 +32,7 @@ Application tables today: `public.gp_settings`, `public.pricing_policy` (plus Su
 erDiagram
   auth_users ||--o| gp_settings : "owns"
   auth_users ||--o| pricing_policy : "owns"
+  auth_users ||--o{ serving_sizes : "owns"
   gp_settings {
     uuid id PK
     uuid user_id UK "not null"
@@ -44,6 +46,17 @@ erDiagram
     numeric btg_bottle_discount
     numeric bottle_rounding_increment
     numeric pour_rounding_increment
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  serving_sizes {
+    uuid id PK
+    uuid user_id FK
+    text category
+    text label
+    int volume_ml
+    boolean enabled
+    int display_order
     timestamptz created_at
     timestamptz updated_at
   }
@@ -157,6 +170,62 @@ UI percentages (`20`) convert to rates (`0.20`) in `src/lib/pricingPolicyStore.t
 
 ---
 
+### `public.serving_sizes`
+
+| | |
+|--|--|
+| **Purpose** | User-configured pour/carafe serving sizes within fixed wine categories |
+| **RLS** | Enabled |
+| **Source in app** | `src/lib/servingSizeStore.ts`; Settings `/settings`; Calculator loads via `listServingSizes` |
+
+Bottle is **not** stored as a serving-size row. The calculator’s full-bottle line remains independent.
+
+#### Columns
+
+| Column | Type | Nullable | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | `uuid` | NO | `gen_random_uuid()` | PK |
+| `user_id` | `uuid` | NO | — | FK → `auth.users(id)` ON DELETE CASCADE |
+| `category` | `text` | NO | — | `dry` \| `sparkling` \| `sweet_fortified` only |
+| `label` | `text` | NO | — | Non-blank after trim |
+| `volume_ml` | `integer` | NO | — | Must be `> 0` |
+| `enabled` | `boolean` | NO | `true` | Disabled rows hidden on calculator |
+| `display_order` | `integer` | NO | — | Must be `>= 0`; spaced 10/20/30… by default |
+| `created_at` / `updated_at` | `timestamptz` | NO | `now()` | |
+
+#### Constraints / indexes
+
+| Name | Definition |
+|------|------------|
+| `serving_sizes_pkey` | PRIMARY KEY (`id`) |
+| `serving_sizes_user_id_fkey` | FK → `auth.users` ON DELETE CASCADE |
+| Category / label / volume / order checks | As above |
+| `serving_sizes_user_category_label_key` | UNIQUE (`user_id`, `category`, `lower(trim(label))`) |
+| `serving_sizes_user_category_order_idx` | Index on (`user_id`, `category`, `display_order`) |
+
+#### RLS
+
+| Policy | Command |
+|--------|---------|
+| `serving_sizes_select_own` | SELECT own |
+| `serving_sizes_insert_own` | INSERT own |
+| `serving_sizes_update_own` | UPDATE own |
+| `serving_sizes_delete_own` | DELETE own |
+
+#### Defaults (seed + first-use)
+
+| Category | Order | Label | ml |
+|----------|-------|-------|-----|
+| dry | 10–40 | Small / Medium / Large glass, Carafe | 125 / 175 / 250 / 500 |
+| sparkling | 10–20 | Coravin glass, Standard glass | 125 / 150 |
+| sweet_fortified | 10 | Small glass | 75 |
+
+Existing users seeded in migration. Future users seeded only when Pricing Policy is first created (`getOrCreatePricingPolicy` → `seedDefaultServingSizes`). An intentionally empty serving-size list is **not** reseeded on later loads.
+
+Canonical TS type: `src/types/servingSizes.ts`. Defaults: `src/lib/servingSizeDefaults.ts`.
+
+---
+
 ### `auth.users` (Supabase-managed)
 
 Used indirectly via Auth APIs (`signUp`, `signInWithPassword`, `getSession`).  
@@ -216,15 +285,17 @@ Setup UX expects custom rules to form a continuous cost axis: `less_than.max` eq
 | State | Type | Role |
 |-------|------|------|
 | `costPriceInput` | `string` | Raw cost field |
-| `wineType` | `"Dry" \| "Sweet" \| "Sparkling"` | Pour size catalogue key |
+| `wineType` | `"Dry" \| "Sweet" \| "Sparkling"` | Maps to fixed serving-size category |
 | `isBTG` | `boolean` | By-the-glass mode |
 | `gp` / `suggestedGp` | `number` | Active / rule-suggested GP % |
 | `rules` | `Rule[]` | Loaded from DB |
+| `pricingPolicy` | `PricingPolicy` | Loaded/ensured from `pricing_policy` |
+| `servingSizes` | `ServingSize[]` | Loaded from `serving_sizes` (may be empty) |
 | `bottleSize` | string enum-like | Half / Bottle / Magnum / Other |
 | `customBottleSizeInput` | `string` | Custom ml when Other |
 | `showSetupModal` | `boolean` | Force rule creation |
 
-Constants (not state): `VAT_RATE = 0.2`, `WINE_SIZES` map.
+Operational pour catalogues come from persisted `serving_sizes`, not hardcoded arrays.
 
 ### GP setup (`src/app/gp-setup/page.tsx`)
 
@@ -267,6 +338,7 @@ Prefer importing from `@/types/rules` for new work.
 |------|----|-------------|-----------|
 | Auth user | `gp_settings` | 0..1 | `user_id` unique + app logic (no FK) |
 | Auth user | `pricing_policy` | 0..1 | `user_id` unique + FK CASCADE + app provisioning |
+| Auth user | `serving_sizes` | 0..n | FK CASCADE; unique label per user+category |
 | `gp_settings.rules` | Rule objects | 0..n in JSON array | Application convention |
 
-Serving sizes remain hardcoded in the calculator UI until Stage 3C. No sales/scenario entities yet.
+Wine categories are fixed identifiers only. No sales/scenario entities yet.
