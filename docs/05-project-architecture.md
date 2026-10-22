@@ -39,7 +39,7 @@ Rule cost boundaries are defined on a **750ml-equivalent acquisition cost**. See
 
 ### Pricing policy and serving sizes
 
-Users configure commercial pricing policy (VAT, BTG bottle discount, rounding increments) and named serving sizes within fixed wine categories (Dry, Sweet/Fortified, Sparkling). Defaults and semantics are established below.
+Users configure commercial pricing policy (VAT, BTG bottle discount, rounding increments) and named serving sizes within fixed wine categories (Dry, Sweet / Fortified, Sparkling). Defaults and semantics are established below.
 
 ### Historical sales analysis
 
@@ -149,7 +149,7 @@ When a wine is offered by the glass:
 Users may define arbitrary named serving sizes within the existing wine categories:
 
 - Dry;
-- Sweet/Fortified;
+- Sweet / Fortified;
 - Sparkling.
 
 A serving-size configuration conceptually contains at least:
@@ -288,7 +288,7 @@ These can be reconsidered if real requirements emerge.
 7. Uncovered / unresolvable rule sets produce an **explicit calculation failure** — no silent GP fallback.
 8. Margin GP must satisfy **GP &lt; 100%**; maximum valid GP follows supported input precision (e.g. 99.9% with one-decimal inputs), not an arbitrary whole-number cap such as 99%.
 9. Pricing policy (VAT rate, BTG full-bottle discount, bottle and glass rounding increments) is **user-configurable**, with established defaults.
-10. Users may define arbitrary named serving sizes within fixed wine categories (Dry, Sweet/Fortified, Sparkling); categories themselves are not user-defined at this stage.
+10. Users may define arbitrary named serving sizes within fixed wine categories (Dry, Sweet / Fortified, Sparkling); categories themselves are not user-defined at this stage.
 11. BTG discount applies to the displayed full-bottle price only; glass/pour prices use the undiscounted bottle-equivalent basis.
 12. Historical scenario calculations must be reproducible.
 13. Scenarios initially hold historic quantities constant.

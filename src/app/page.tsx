@@ -51,6 +51,7 @@ export default function Page() {
   const [gpError, setGpError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [rules, setRules] = useState<Rule[]>([])
+  const [rulesError, setRulesError] = useState<string | null>(null)
   const [pricingPolicy, setPricingPolicy] = useState<PricingPolicy | null>(null)
   const [policyError, setPolicyError] = useState<string | null>(null)
   const [servingSizes, setServingSizes] = useState<ServingSize[] | null>(null)
@@ -113,10 +114,19 @@ export default function Page() {
         .eq('user_id', user.id)
         .single()
 
-      if (error || !data || !data.rules || data.rules.length === 0) {
+      // .single() reports PGRST116 when the user has no gp_settings row yet.
+      if (error && error.code !== 'PGRST116') {
+        setRulesError(error.message || 'Pricing rules could not be loaded. Prices cannot be calculated.')
+        setRules([])
+        setShowSetupModal(false)
+      } else if (!data?.rules || data.rules.length === 0) {
+        setRulesError(null)
+        setRules([])
         setShowSetupModal(true)
       } else {
+        setRulesError(null)
         setRules(data.rules)
+        setShowSetupModal(false)
       }
 
       setLoadingSession(false)
@@ -194,8 +204,11 @@ export default function Page() {
           {policyError ?? 'Pricing policy is not available. Prices cannot be calculated.'}
         </p>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => router.push('/gp-setup')}>
+            Pricing Rules
+          </Button>
           <Button variant="outline" onClick={() => router.push('/settings')}>
-            Open Settings
+            Settings
           </Button>
           <Button
             onClick={handleLogout}
@@ -216,8 +229,34 @@ export default function Page() {
           {servingSizesError ?? 'Serving sizes could not be loaded. Pour prices are unavailable.'}
         </p>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => router.push('/gp-setup')}>
+            Pricing Rules
+          </Button>
           <Button variant="outline" onClick={() => router.push('/settings')}>
-            Open Settings
+            Settings
+          </Button>
+          <Button
+            onClick={handleLogout}
+            variant="outline"
+            className="text-red-600 border-red-400 hover:bg-red-50"
+          >
+            Logout
+          </Button>
+        </div>
+      </main>
+    )
+  }
+
+  if (rulesError) {
+    return (
+      <main className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
+        <p className="text-red-600">{rulesError}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => router.push('/gp-setup')}>
+            Pricing Rules
+          </Button>
+          <Button variant="outline" onClick={() => router.push('/settings')}>
+            Settings
           </Button>
           <Button
             onClick={handleLogout}
@@ -235,6 +274,9 @@ export default function Page() {
     <main className="p-4 md:p-8 max-w-2xl mx-auto">
       <div className="flex flex-wrap gap-2 justify-between mb-4">
         <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" disabled>
+            Calculator
+          </Button>
           <Button
             onClick={() => router.push('/gp-setup')}
             variant="outline"
@@ -416,6 +458,11 @@ export default function Page() {
                     })()}
                   </tbody>
                 </table>
+              )}
+              {!loading && !gpError && isBTG && baseBottleMl !== null && Number.isFinite(costPrice) && costPrice >= 0 && isValidGp(gp) && enabledServings.length === 0 && (
+                <p className="text-sm text-gray-600 text-center mt-3">
+                  No serving sizes are enabled for this wine type.
+                </p>
               )}
             </div>
           </div>

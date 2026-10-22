@@ -59,8 +59,8 @@ flowchart TB
 | `/login` | `src/app/login/page.tsx` | Public | Sign in |
 | `/signup` | `src/app/signup/page.tsx` | Public | Register |
 | `/` | `src/app/page.tsx` | Session required (client check) | Calculator |
-| `/gp-setup` | `src/app/gp-setup/page.tsx` | Session required | Rule editor |
-| `/gp-setup/custom` | `src/app/gp-setup/custom/page.tsx` | Session required (check on save) | Alternate wizard (**unlinked**) |
+| `/gp-setup` | `src/app/gp-setup/page.tsx` | Session required | Pricing Rules |
+| `/settings` | `src/app/settings/page.tsx` | Session required | Pricing Policy and Serving Sizes |
 
 There is **no** `middleware.ts` for route protection.
 
@@ -74,7 +74,7 @@ Persistence and auth are entirely **Supabase**:
 
 - Browser creates a singleton client in `src/lib/supabaseClient.ts`.
 - Credentials are **hardcoded** (URL + anon key), not read from `process.env`.
-- Data access uses the Supabase REST/Data API via `.from('gp_settings')` and Auth methods.
+- Data access uses the Supabase REST/Data API via `.from('gp_settings')`, `.from('pricing_policy')`, `.from('serving_sizes')`, and Auth methods.
 
 ### API structure
 
@@ -96,7 +96,8 @@ Effective “API” surface used by the app:
 | Load rules | `from('gp_settings').select(...).eq('user_id', id).single()` |
 | Insert rules | `from('gp_settings').insert([{ user_id, rules }])` |
 | Update rules | `from('gp_settings').update({ rules }).eq('user_id', id)` |
-| Upsert rules | `from('gp_settings').upsert({ user_id, rules }, { onConflict: 'user_id' })` (custom page) |
+| Load / create pricing policy | `src/lib/pricingPolicyStore.ts` |
+| Serving size CRUD | `src/lib/servingSizeStore.ts` |
 | Email lookup on failed login | `from('users').select('id').eq('email', email).single()` — **broken relative to live schema** (no `public.users`) |
 
 ---
@@ -107,11 +108,11 @@ See [`DATA_MODEL.md`](./DATA_MODEL.md) for field-level detail.
 
 **Summary:**
 
-- One application table: `public.gp_settings`.
+- Application tables: `public.gp_settings`, `public.pricing_policy`, `public.serving_sizes`.
 - Auth identities: `auth.users` (Supabase-managed).
-- RLS enabled: users may only access rows where `auth.uid() = user_id`.
-- `user_id` UNIQUE → at most one settings document per user.
-- `rules` stored as **JSONB** (array of rule objects).
+- RLS enabled: users may only access their own rows (`auth.uid() = user_id`).
+- `gp_settings.user_id` UNIQUE → at most one GP-rule document per user. `rules` is **JSONB**.
+- `pricing_policy` and `serving_sizes` are the runtime calculator configuration. Field-level detail is in [`DATA_MODEL.md`](./DATA_MODEL.md).
 
 ```mermaid
 erDiagram
@@ -269,7 +270,7 @@ flowchart TD
   A[Enter cost ex VAT + options] --> B[Load rules from gp_settings]
   B --> C[resolveTargetGp via 750ml reference cost]
   C --> D[User may nudge GP ±1%]
-  D --> E[priceWithGp + DEFAULT_PRICING_POLICY]
+  D --> E[priceWithGp using persisted pricing policy]
   E --> F{BTG?}
   F -->|Yes| G[Bottle line discounted; pours undiscounted basis]
   F -->|No| H[Show bottle only]

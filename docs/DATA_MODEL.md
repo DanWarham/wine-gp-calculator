@@ -82,7 +82,7 @@ Logical relationship: `gp_settings.user_id` corresponds to `auth.users.id`.
 | **Purpose** | Store each user’s GP pricing rule set |
 | **Table comment (DB)** | “User defines their GP Settings” |
 | **RLS** | Enabled |
-| **Source in app** | Queried/written from `src/app/page.tsx`, `src/app/gp-setup/page.tsx`, `src/app/gp-setup/custom/page.tsx` |
+| **Source in app** | Read from `src/app/page.tsx` and `src/app/gp-setup/page.tsx`; written from `src/app/gp-setup/page.tsx` |
 
 #### Columns
 
@@ -323,12 +323,7 @@ export interface BaseRule {
 // LessThanRule, GreaterThanRule, BetweenRule, AllGpRule, Rule
 ```
 
-**Duplicated (drift risk):**
-
-- Inline copies in `src/app/page.tsx`
-- Inline copies in `src/app/gp-setup/custom/page.tsx` (subset: no `AllGpRule`)
-
-Prefer importing from `@/types/rules` for new work.
+Active calculator and Pricing Rules code imports these types. There is no second rule-model definition in the application.
 
 ---
 

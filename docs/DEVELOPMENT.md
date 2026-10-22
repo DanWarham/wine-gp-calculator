@@ -208,13 +208,12 @@ Patterns already present — prefer consistency over inventing a new style guide
 
 ### Prefer
 
-- Reuse `@/types/rules` and `@/lib/gpRules` rather than copying types/validators.
-- Keep money math in `src/lib/pricing` only.
-- Use non-emoji rule component filenames (`AllGpRuleForm.tsx`, etc.).
+- Reuse `@/types/rules` and `@/lib/gpRules` rather than copying types or input helpers.
+- Keep money math in `src/lib/pricing` only. Final rule-set validity is `validateRuleSetForPricing`.
+- Rule editors live in `src/components/rules/`.
 
 ### Avoid (unless explicitly requested)
 
-- Importing `📄 *.tsx` duplicates under `src/components/rules/`.
 - Adding service-role Supabase keys to the client.
 - Changing VAT rate, rounding, or GP formula without product confirmation.
 - Expanding scope into inventory/catalogue features without design agreement.

@@ -4,6 +4,7 @@
 **Repository:** `DanWarham/wine-gp-calculator`  
 **Evidence sources:** repository source, `package-lock.json`, live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calculator`), `npm audit`, GitHub advisory GHSA-9qr9-h5gf-34mp  
 **Assessment date:** 2026-10-19  
+**Status:** Historical snapshot. Current implementation is [`06-current-implementation.md`](./06-current-implementation.md). Findings below describe the repository on the assessment date, including routes and components later removed in Stage 3D.  
 **Mode:** Assessment only — no implementation performed
 
 ---

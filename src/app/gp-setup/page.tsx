@@ -30,6 +30,7 @@ export default function GPSetupPage() {
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingRules, setLoadingRules] = useState(true)
+  const [rulesLoadError, setRulesLoadError] = useState<string | null>(null)
   const [formHasError, setFormHasError] = useState(false)
   const [gapModalOpen, setGapModalOpen] = useState(false)
   const [gaps, setGaps] = useState<{ min: number, max: number }[]>([])
@@ -47,9 +48,15 @@ export default function GPSetupPage() {
         .eq('user_id', session.user.id)
         .single()
 
-      if (error || !data) {
+      // .single() reports PGRST116 when the user has no gp_settings row yet.
+      if (error && error.code !== 'PGRST116') {
+        setRulesLoadError(error.message || 'Pricing rules could not be loaded.')
+        setRules([])
+      } else if (!data) {
+        setRulesLoadError(null)
         setRules([])
       } else {
+        setRulesLoadError(null)
         setRules(data.rules || [])
       }
       setLoadingRules(false)
@@ -360,7 +367,32 @@ export default function GPSetupPage() {
     setGaps([])
   }
 
-  if (loadingRules) return null
+  if (loadingRules) {
+    return (
+      <main className="p-4 md:p-8 max-w-2xl mx-auto">
+        <p className="text-gray-500">Loading pricing rules…</p>
+      </main>
+    )
+  }
+
+  if (rulesLoadError) {
+    return (
+      <main className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => router.push('/')}>
+            Calculator
+          </Button>
+          <Button variant="secondary" disabled>
+            Pricing Rules
+          </Button>
+          <Button variant="outline" onClick={() => router.push('/settings')}>
+            Settings
+          </Button>
+        </div>
+        <p className="text-red-600">{rulesLoadError}</p>
+      </main>
+    )
+  }
 
   return (
     <main className="p-6 max-w-2xl mx-auto flex flex-col justify-center min-h-screen">
@@ -377,7 +409,7 @@ export default function GPSetupPage() {
       </div>
       <Card className="shadow-md">
         <CardContent className="space-y-8 py-8">
-          <h1 className="text-2xl font-bold text-center mb-6">Setup Your GP Rules</h1>
+          <h1 className="text-2xl font-bold text-center mb-6">Pricing Rules</h1>
 
           <p className="text-sm text-gray-600 text-center -mt-4 mb-2">
             GP rule cost bands use the equivalent acquisition cost of a 750ml bottle.

@@ -1,6 +1,3 @@
-import { Rule } from '@/types/rules'
-import { validateRuleSetForPricing } from '@/lib/pricing'
-
 // Sanitizes input to only allow valid characters
 export const sanitizeInput = (value: string, isGpField: boolean = false): string => {
   // Remove any non-numeric characters except decimal point
@@ -59,59 +56,4 @@ export const safeParse = (value: string, isGpField: boolean = false): number | u
   if (!isGpField && parsed < 0) return undefined
   
   return parsed
-}
-
-export const validateNumberField = (value: unknown): boolean => {
-  return typeof value === 'number' && !isNaN(value)
-}
-
-/**
- * Form/editor helper: field completeness, then pricing-domain structural authority.
- * Contiguity/gap UX remains the responsibility of the setup page helpers.
- */
-export const validateRules = (rules: Rule[], setError: (msg: string) => void): boolean => {
-  if (!rules.length) {
-    setError("You must have at least one rule.")
-    return false
-  }
-
-  for (const rule of rules) {
-    if (rule.type === 'less_than') {
-      if (!validateNumberField(rule.max) || !validateNumberField(rule.gp)) {
-        setError("All Less Than rule fields must be filled with valid numbers.")
-        return false
-      }
-    }
-    if (rule.type === 'greater_than') {
-      if (!validateNumberField(rule.min) || !validateNumberField(rule.gp)) {
-        setError("All Greater Than rule fields must be filled with valid numbers.")
-        return false
-      }
-    }
-    if (rule.type === 'between') {
-      if (
-        !validateNumberField(rule.min) ||
-        !validateNumberField(rule.max) ||
-        !validateNumberField(rule.start_gp) ||
-        !validateNumberField(rule.end_gp)
-      ) {
-        setError("All Between rule fields must be filled with valid numbers.")
-        return false
-      }
-    }
-    if (rule.type === 'all_gp') {
-      if (!validateNumberField(rule.gp)) {
-        setError("Universal GP must be a valid number.")
-        return false
-      }
-    }
-  }
-
-  const pricingError = validateRuleSetForPricing(rules)
-  if (pricingError) {
-    setError(pricingError.message)
-    return false
-  }
-
-  return true
 }

@@ -39,7 +39,8 @@ Other dependencies exist (e.g. `lucide-react`, `class-variance-authority`); they
 Browser (React client pages)
     │  @supabase/supabase-js
     ▼
-Supabase Auth + Postgres (public.gp_settings, auth.users)
+Supabase Auth + Postgres
+  (public.gp_settings, public.pricing_policy, public.serving_sizes, auth.users)
 ```
 
 ---
@@ -51,10 +52,11 @@ Supabase Auth + Postgres (public.gp_settings, auth.users)
 | `/welcome` | Public entry (Login / Register) | |
 | `/login` | Email/password sign-in | |
 | `/signup` | Email/password registration | Open signup |
-| `/` | Wine price calculator | Loads rules + pricing policy |
+| `/` | Wine price calculator | Loads persisted rules, pricing policy, and serving sizes |
 | `/gp-setup` | Pricing Rules editor | GP bands; separate from Settings |
 | `/settings` | Pricing Policy + Serving Sizes | VAT/BTG/rounding; per-category pour sizes |
-| `/gp-setup/custom` | Alternate multi-step wizard | **Unlinked/orphaned** — reachable by URL only; not intended architecture |
+
+Navigation on Calculator, Pricing Rules, and Settings names those three destinations and marks the current one. `/gp-setup/custom` has been removed; that URL is a normal 404.
 
 Auth protection is per-page `supabase.auth.getSession()` only.
 
@@ -66,7 +68,7 @@ Auth protection is per-page `supabase.auth.getSession()` only.
 
 The calculator (`src/app/page.tsx`) collects inputs and displays results; it calls `resolveTargetGp` / `priceWithGp` rather than embedding formula logic.
 
-Canonical rule types: `src/types/rules.ts`. UI input helpers: `src/lib/gpRules.ts`. Default commercial policy: `DEFAULT_PRICING_POLICY` in `src/lib/pricing/defaults.ts`.
+Canonical rule types: `src/types/rules.ts`. UI input helpers: `src/lib/gpRules.ts` (`sanitizeInput`, `validateInput`, `safeParse` only). Default commercial policy: `DEFAULT_PRICING_POLICY` in `src/lib/pricing/defaults.ts`, used for tests and provisioning semantics, not as a calculator fallback.
 
 Automated financial regression tests: `src/lib/pricing/pricing.test.ts` via Vitest (`npm test`).
 
@@ -135,13 +137,13 @@ Defaults (DB column defaults + `DEFAULT_PRICING_POLICY` for tests/provisioning s
 
 Bottle sizes: 375 / 750 / 1500 / custom positive ml. **Invalid custom volume fails** in the pricing domain (no silent 750ml fallback).
 
-Pour catalogues are persisted per user in `serving_sizes` (Stage 3C). Defaults: Dry 125/175/250/500, Sparkling 125/150, Sweet/Fortified 75. Bottle is not a serving-size row.
+Pour catalogues are persisted per user in `serving_sizes` (Stage 3C). Provisioning defaults: Dry 125/175/250/500, Sparkling 125/150, Sweet / Fortified 75. Bottle is not a serving-size row. The calculator reads persisted rows only. An empty or fully disabled category shows the bottle line and states that no serving sizes are enabled. It does not invent pour rows.
 
-### Remaining gaps after Stage 3C
+### Remaining gaps after Stage 3D
 
 - Pricing configuration versioning
 - User-defined wine categories (explicitly deferred)
-- Setup-page overlap/gap UX helpers still local to `/gp-setup` (engine has `validateRuleSetForPricing`)
+- Pricing Rules keeps editor-only overlap messaging and gap assistance on `/gp-setup`. Final structural validity is `validateRuleSetForPricing`.
 
 ---
 
@@ -160,18 +162,12 @@ Canonical TypeScript: `src/types/rules.ts`. No DB-level JSON schema validation.
 
 ### Validation / gaps / overlaps
 
-Primary UX on `/gp-setup`:
-
-- Overlap check blocks intersecting ranges (touching edges OK).
-- Gap analysis can offer to insert missing `between` rules.
-- Contiguity is a UI convention; DB does not enforce it.
-
-### Duplication / drift risks
-
-- Calculator imports `@/types/rules`; orphan `/gp-setup/custom` still has inline Rule copies.
-- `/gp-setup` save path uses `validateRuleSetForPricing` as the authoritative final check; page retains UX-only overlap/gap helpers.
-- `src/lib/gpRules.validateRules` performs field completeness then delegates structural checks to the pricing domain.
-- Emoji-prefixed unused rule form duplicates under `src/components/rules/`.
+- Active pages import `Rule` from `src/types/rules.ts`.
+- Editor overlap check on `/gp-setup` blocks intersecting ranges (touching edges are allowed) and explains the clash.
+- Gap analysis can offer to insert missing `between` rules. Contiguity is a UI convention; the database does not enforce it.
+- Save then calls `validateRuleSetForPricing`. That is the only final structural check.
+- Rule field forms are `src/components/rules/{AllGp,LessThan,GreaterThan,Between}RuleForm.tsx`.
+- Calculator, Pricing Rules, and Settings distinguish loading, a loaded configuration, a valid empty serving-size list, and a configuration load error. Load failures do not substitute default policy, hardcoded pour sizes, or a fallback GP.
 
 ---
 
@@ -263,7 +259,7 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 
 | Area | Reality |
 |------|---------|
-| Automated financial tests | **Vitest** domain suite in `src/lib/pricing/pricing.test.ts` |
+| Automated tests | **Vitest**: pricing domain, pricing-policy store helpers, serving-size helpers, wine-category mapping |
 | Scripts | `dev`, `build`, `start`, `lint`, `test`, `test:watch` |
 | Manual validation | Still expected for calculator UX smoke (auth, rule setup, BTG display) |
 
@@ -299,12 +295,11 @@ Local Docker is not required merely to author or review migrations.
 
 Prioritised for orientation (not exhaustive assessment dump):
 
-1. Orphan `/gp-setup/custom`.
-2. Unused emoji-prefixed rule form duplicates.
-3. Broken `public.users` login lookup.
-4. Hardcoded Supabase configuration.
-5. Persisted rule sets that historically relied on silent 70% gap behaviour will now surface explicit calculator errors until rules are fixed.
-6. Wine categories remain fixed (not user-configurable).
+1. Broken `public.users` login lookup.
+2. Hardcoded Supabase configuration.
+3. Persisted rule sets that historically relied on silent 70% gap behaviour surface explicit calculator errors until rules are fixed.
+4. Wine categories remain fixed (not user-configurable).
+5. `gp_settings.user_id` still has no foreign key to `auth.users`.
 
 ---
 

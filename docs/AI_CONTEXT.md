@@ -2,7 +2,7 @@
 
 Detailed product and domain orientation for AI coding assistants and engineers working on this repository.
 
-**Last reviewed against codebase:** 2026-10-19  
+**Last reviewed against codebase:** 2026-10-22  
 **Scope:** Documentation only. Do not treat this file as executable specification if it drifts from source — prefer the referenced source files.
 
 **Documentation authority:**
@@ -25,7 +25,7 @@ Users define **pricing rules** that map cost-price bands to GP targets (fixed or
 2. Optionally lets the user nudge GP ±1%.
 3. Outputs rounded selling prices for bottle and (when relevant) pour sizes by wine type.
 
-There is **no wine catalogue / inventory product database** in this app. Each calculation is ephemeral: cost and options are entered on the home screen; only the user’s rule set is persisted.
+There is **no wine catalogue / inventory product database** in this app. Each calculation is ephemeral. The user’s GP rules, pricing policy, and serving sizes are persisted.
 
 ---
 
@@ -39,7 +39,7 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 2. After auth, land on `/` (calculator). If no rules exist in `gp_settings`, a modal forces navigation to `/gp-setup`.
 3. On `/gp-setup`, create either a **Universal GP** rule or a **Custom Rule Set** (less-than / between / greater-than bands).
 4. Return to `/`, enter cost (ex VAT), wine type, bottle size, bottle vs by-the-glass, review suggested prices.
-5. Optionally edit rules via “Edit GP Rules”, or logout.
+5. Optionally open **Pricing Rules** (`/gp-setup`) or **Settings** (`/settings`), or logout.
 
 ---
 
@@ -52,9 +52,9 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 | **Cost price** | Purchase cost **excluding VAT**. Label: “Cost Price (ex VAT)”. | `src/app/page.tsx` |
 | **Selling price** | Customer-facing price in £, derived from cost + VAT treatment + GP. | `src/lib/pricing` |
 | **VAT / tax** | User policy `vatRate` (default `0.2` = 20%). Applied inside the selling-price formula. | `pricing_policy` / Settings |
-| **Wine type** | `Dry`, `Sweet` (UI: “Sweet/Fortified”), or `Sparkling`. Maps to fixed serving-size categories. | `wineCategories.ts` / `serving_sizes` |
-| **Bottle pricing** | Price for a full bottle (Half 375ml / Bottle 750ml / Magnum 1500ml / Other custom ml). Rounded to nearest £. | Home page |
-| **Glass / pour pricing** | ml-based servings when “Selling By the Glass”. Rounded to nearest 50p. | Home page |
+| **Wine type** | `Dry`, `Sparkling`, or `Sweet` (label: “Sweet / Fortified”). Maps to fixed serving-size categories `dry`, `sparkling`, `sweet_fortified`. | `wineCategories.ts` / `servingSizes.ts` |
+| **Bottle pricing** | Price for a full bottle (Half 375ml / Bottle 750ml / Magnum 1500ml / Other custom ml). Rounded with the persisted bottle increment. | Home page + pricing domain |
+| **Glass / pour pricing** | Enabled persisted servings when “Selling By the Glass”. Rounded with the persisted pour increment. | Home page + `serving_sizes` |
 | **Pour sizes** | User-configured per category (defaults: Dry 125/175/250/500; Sparkling 125/150; Sweet 75). Bottle is separate. | `serving_sizes` / Settings |
 | **BTG (By The Glass)** | Toggle `isBTG`. When true, shows pour rows and applies the user’s BTG bottle discount (default 5%) to the bottle line only. | Home page + Settings |
 | **Pricing rules** | JSON rules mapping cost bands → GP %. Types: `all_gp`, `less_than`, `between`, `greater_than`. | `src/types/rules.ts` |
@@ -127,7 +127,7 @@ Product defaults (`DEFAULT_PRICING_POLICY` / DB column defaults): VAT 20%, BTG b
 2. Resolve suggested GP via `resolveTargetGp` (full precision into state; display may format).
 3. User may nudge GP ±1% while `0 < GP < 100`.
 4. Bottle row always uses `priceWithGp` with persisted policy; when BTG, enabled serving sizes for the selected category are priced in `display_order` (label · ml).
-5. Errors (policy/serving load, gap, invalid bottle size, invalid GP) surface as messages — not invented prices or hardcoded pour catalogues.
+5. Errors (policy load, serving-size load, rule load, uncovered gap, invalid bottle size, invalid GP) surface as messages. The calculator does not invent prices, substitute `DEFAULT_PRICING_POLICY`, or fill in hardcoded pour rows. A category with no enabled serving sizes shows the bottle price and an empty-serving message.
 
 **Bottle-only mode:** when `!isBTG`, only the bottle row is shown.
 
@@ -152,9 +152,9 @@ Product defaults (`DEFAULT_PRICING_POLICY` / DB column defaults): VAT 20%, BTG b
 |----------|-----------|
 | `sanitizeInput(value, isGpField)` | Digits + one `.`; GP → 1 decimal place; price → 2 decimal places |
 | `validateInput(value, isGpField)` | Empty allowed; GP in **[1, 100)**; prices **≥ 0** |
-| `safeParse(value, isGpField)` | `parseFloat` or `undefined` with same bounds |
-| `validateNumberField` | `typeof number && !isNaN` |
-| `validateRules(rules, setError)` | Field completeness then `validateRuleSetForPricing`. Setup save path also calls the pricing-domain validator directly. |
+| `safeParse(value, isGpField)` | `parseFloat` or `undefined` with the same bounds |
+
+Final structural validity is `validateRuleSetForPricing` in `src/lib/pricing/validation.ts`, called from the Pricing Rules save path and from the pricing engine. Incomplete fields are handled by the rule forms (`setHasError`).
 
 ---
 
@@ -165,8 +165,6 @@ Product defaults (`DEFAULT_PRICING_POLICY` / DB column defaults): VAT 20%, BTG b
 - `findOverlappingRules` — blocks save/edit if ranges intersect (touching edges OK).
 - `analyzeGaps` / gap modal — can insert missing `between` rules.
 - Engine rejects degenerate/ambiguous structures and fails closed on uncovered reference costs at calculation time.
-
-Custom wizard at `/gp-setup/custom` remains an unlinked orphan route.
 
 ---
 
@@ -181,7 +179,7 @@ Custom wizard at `/gp-setup/custom` remains an unlinked orphan route.
 | Calculator | Cost, wine type, bottle size, BTG, GP nudge, price table | `src/app/page.tsx` + `src/lib/pricing` |
 | Force rule setup | Modal if no `gp_settings.rules` | Home page |
 | GP rule editor | Universal or custom bands; overlap/gap UX; persist to Supabase | `src/app/gp-setup/page.tsx` + rule form components |
-| Custom setup wizard | Multi-step less/greater/between | `src/app/gp-setup/custom/page.tsx` (unlinked) |
+| Settings | Pricing Policy and Serving Sizes | `src/app/settings/page.tsx` |
 | Toasts | Success/error messages (login/signup) | `src/components/toast-provider.tsx` |
 
 **Not present:** wine inventory, multi-venue accounts, user-defined wine categories, server API routes, Next.js middleware auth guards.
@@ -243,20 +241,24 @@ wine-gp-calculator/
     │   ├── welcome/page.tsx
     │   ├── login/page.tsx
     │   ├── signup/page.tsx
-    │   └── gp-setup/
-    │       ├── page.tsx      # primary rule editor
-    │       └── custom/page.tsx  # alternate wizard (unlinked)
+    │   ├── gp-setup/page.tsx # Pricing Rules editor
+    │   └── settings/page.tsx # Pricing Policy + Serving Sizes
     ├── components/
     │   ├── toast-provider.tsx
-    │   ├── rules/            # rule edit forms (+ emoji-prefixed duplicates)
+    │   ├── rules/            # AllGp, LessThan, GreaterThan, Between forms
     │   └── ui/               # button, card, input, toggle
     ├── lib/
     │   ├── pricing/          # deterministic pricing domain + Vitest suite
-    │   ├── gpRules.ts        # UI sanitize/validate helpers
+    │   ├── gpRules.ts        # form input sanitize/validate/parse
+    │   ├── pricingPolicyStore.ts
+    │   ├── servingSizeStore.ts
+    │   ├── servingSizeDefaults.ts  # provisioning defaults only
+    │   ├── wineCategories.ts # calculator wine type → category id
     │   ├── supabaseClient.ts # Supabase client (hardcoded URL/anon key)
     │   └── utils.ts          # cn() classname helper
     └── types/
-        └── rules.ts          # canonical Rule union types
+        ├── rules.ts          # canonical Rule union
+        └── servingSizes.ts   # category ids, labels, serving-size shape
 ```
 
 ---
@@ -267,13 +269,17 @@ wine-gp-calculator/
 |------|------|
 | `src/lib/pricing/` | **Authoritative pricing domain** + financial tests |
 | `src/app/page.tsx` | Calculator UI, session gate, load rules; consumes pricing domain |
-| `src/lib/gpRules.ts` | Input sanitize/validate; shared `validateRules` (partially unused by setup page) |
+| `src/lib/gpRules.ts` | Form input helpers: `sanitizeInput`, `validateInput`, `safeParse` |
 | `src/types/rules.ts` | Canonical rule TypeScript types |
-| `src/app/gp-setup/page.tsx` | Rule CRUD UX, gap/overlap, save to `gp_settings` |
-| `src/app/gp-setup/custom/page.tsx` | Alternate custom wizard + upsert |
+| `src/types/servingSizes.ts` | Canonical category ids (`dry`, `sparkling`, `sweet_fortified`) and labels |
+| `src/lib/wineCategories.ts` | Calculator wine-type values mapped onto those categories |
+| `src/app/gp-setup/page.tsx` | Pricing Rules UX, gap/overlap messaging, save to `gp_settings` |
+| `src/app/settings/page.tsx` | Pricing Policy and Serving Size editor |
+| `src/lib/pricingPolicyStore.ts` | Load/create/save persisted pricing policy |
+| `src/lib/servingSizeStore.ts` | Serving size CRUD; calculator filtering |
 | `src/lib/supabaseClient.ts` | Single Supabase browser client |
 | `src/app/login/page.tsx` / `signup/page.tsx` | Auth flows |
-| `src/components/rules/*.tsx` | Editable rule field UIs (canonical names without emoji) |
+| `src/components/rules/*.tsx` | Editable rule field UIs |
 | `src/components/toast-provider.tsx` | Toast context |
 | `src/components/ui/*` | Shared UI primitives |
 | `src/app/layout.tsx` | App shell + metadata |
@@ -286,10 +292,10 @@ There is **no** ORM/schema file in-repo. Live schema is in Supabase project `win
 
 1. **Auth:** User signs up/logs in via Supabase Auth → session stored by supabase-js in the browser.
 2. **Session check:** Protected pages call `supabase.auth.getSession()`; missing session → redirect `/welcome`.
-3. **Load rules:** `gp_settings` selected where `user_id = session.user.id`.
-4. **Calculate:** User edits cost/options → `useEffect` debounces (~200ms) → `resolveTargetGp` → sets `suggestedGp`/`gp` (full precision) → table calls `priceWithGp` per row.
-5. **Persist rules:** Setup page insert/update (or custom page upsert) `gp_settings.rules` JSONB.
-6. **UI feedback:** Toasts on auth; inline errors on setup; success redirect to `/`.
+3. **Load configuration:** persisted pricing policy, serving sizes, and `gp_settings` for `user_id = session.user.id`. A missing rules row opens the setup modal. Any other rules, policy, or serving-size load failure stops pricing.
+4. **Calculate:** User edits cost/options → `useEffect` debounces (~200ms) → `resolveTargetGp` → sets `suggestedGp`/`gp` (full precision) → table calls `priceWithGp` per row with the loaded policy and enabled serving sizes.
+5. **Persist rules:** Pricing Rules page inserts or updates `gp_settings.rules` JSONB after editor checks and `validateRuleSetForPricing`.
+6. **UI feedback:** Toasts on auth and settings; inline errors on setup; success redirect to `/`.
 
 Calculation results are **not** written to the database.
 
@@ -298,13 +304,13 @@ Calculation results are **not** written to the database.
 ## Important Constraints
 
 1. **Financial calculations must go through `src/lib/pricing`** — do not reintroduce page-local formulas.
-2. **Default policy** is VAT 0.2 / BTG discount 0.05 / bottle £1 / pour £0.50 until Stage-3 configuration exists.
-3. **Rules JSON shape** must remain compatible with `Rule` union and both setup + engine matchers.
+2. **Runtime pricing policy** is the persisted `pricing_policy` row. `DEFAULT_PRICING_POLICY` (VAT 0.2, BTG discount 0.05, bottle £1, pour £0.50) is for tests and for alignment with database column defaults. It is not a calculator fallback.
+3. **Rules JSON shape** must remain compatible with the `Rule` union in `src/types/rules.ts`.
 4. **One `gp_settings` row per user** (`user_id` UNIQUE); save paths assume that.
-5. **RLS** on `gp_settings` requires `auth.uid() = user_id` — client must be authenticated for read/write.
+5. **RLS** requires `auth.uid() = user_id` — the client must be authenticated for read/write.
 6. **Client-only Supabase key** is the publishable/anon key pattern; never add service-role keys to frontend.
-7. Prefer `@/types/rules` — avoid new inline Rule copies (custom orphan page still has copies).
-8. BTG affects bottle-line discount only; it does not change rule-selected GP.
+7. Import rule types from `@/types/rules`. Category ids and labels live in `@/types/servingSizes`.
+8. BTG affects the bottle-line discount only. It does not change rule-selected GP. Pours use the undiscounted bottle basis.
 
 ---
 
@@ -314,14 +320,10 @@ Supported by the repository / live DB (not invented):
 
 1. **Hardcoded Supabase URL and anon key** in `src/lib/supabaseClient.ts` instead of env vars.
 2. **Login “email not found” path queries `.from('users')`**, but **no `public.users` table exists** (only `auth.users`).
-3. **Duplicated rule types** in `src/app/gp-setup/custom/page.tsx` vs `src/types/rules.ts`.
-4. Setup page keeps UX-only overlap/gap helpers; final save validity is `validateRuleSetForPricing`.
-5. **Orphan route** `/gp-setup/custom` — no in-app navigation links found.
-6. **Emoji-prefixed duplicate components** under `src/components/rules/` (`📄 *.tsx`).
-7. **No Next middleware** — protection is per-page `getSession` only.
-8. **README** is still create-next-app boilerplate.
-9. **Legacy rule gaps** that previously fell through to silent 70% now fail closed in the calculator until the rule set is corrected.
-10. `gp_settings` row counts are volatile point-in-time observations, not architecture.
+3. **No Next middleware** — protection is per-page `getSession` only.
+4. **README** is still create-next-app boilerplate.
+5. **Legacy rule gaps** that previously fell through to silent 70% fail closed in the calculator until the rule set is corrected.
+6. `gp_settings.user_id` has no foreign key to `auth.users`.
 
 ---
 
@@ -333,7 +335,6 @@ Supported by the repository / live DB (not invented):
 | Calculator + shared pricing engine | Implemented (`src/lib/pricing`) |
 | Financial Vitest suite | Implemented |
 | GP rule editor with gap/overlap UX | Implemented on `/gp-setup` |
-| Custom multi-step wizard | Code exists; unlinked orphan |
 | User-configurable pricing policy UI | Implemented (`/settings`, Stage 3B) |
 | User-configurable serving sizes UI | Implemented (`/settings`, Stage 3C) |
 | Env-based configuration | Not implemented |
@@ -349,8 +350,8 @@ Commit history language (“Final Update”, etc.) suggests the author considere
 1. **Do not change pricing formulas casually.** Change `src/lib/pricing` and extend `pricing.test.ts`.
 2. Keep calculator UI thin; calculation belongs in the pricing domain.
 3. Use **`src/types/rules.ts`** as the single source of truth for rule shapes.
-4. Prefer **`src/lib/gpRules.ts`** for form helpers; engine structural checks use `validateRuleSetForPricing`.
-5. Ignore or delete emoji-prefixed `📄` rule files only when explicitly asked; do not import them.
+4. Use **`src/lib/gpRules.ts`** for form input helpers. Structural checks use `validateRuleSetForPricing`.
+5. Keep Pricing Rules separate from Settings. Category labels come from `SERVING_SIZE_CATEGORY_LABELS`.
 6. Do not introduce a `service_role` key in client code.
 7. After calculation or rule changes, run `npm test` and manually smoke the calculator.
 8. Run `npm test`, `npm run lint`, and `npm run build` after substantive edits.
