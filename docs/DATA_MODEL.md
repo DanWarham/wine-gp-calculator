@@ -19,6 +19,7 @@ If migrations and live state disagree, **investigate the drift** — do not sile
 | `20261019134900_baseline_current_schema.sql` | Baseline of pre-existing `gp_settings` (Stage 3A; did not alter live schema) |
 | `20261019223922_create_pricing_policy.sql` | Additive `pricing_policy` table + RLS + seed (Stage 3B) |
 | `20261022104800_create_serving_sizes.sql` | Additive `serving_sizes` table + RLS + seed (Stage 3C) |
+| `20261026194756_harden_database_access.sql` | `gp_settings` FK + grant tightening + postgres default-privilege hardening (Stage 4B2) |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md). This file provides supporting schema/type detail. If sources materially disagree, investigate rather than silently reconciling them.
 
@@ -35,7 +36,7 @@ erDiagram
   auth_users ||--o{ serving_sizes : "owns"
   gp_settings {
     uuid id PK
-    uuid user_id UK "not null"
+    uuid user_id UK "FK auth.users"
     jsonb rules "nullable"
     timestamp created_at
   }
@@ -66,10 +67,17 @@ erDiagram
   }
 ```
 
-Logical relationship: `gp_settings.user_id` corresponds to `auth.users.id`.  
-**Fact:** **No foreign-key constraint** from `gp_settings.user_id` to `auth.users` (legacy; unchanged in Stage 3B). Enforcement is application + RLS.
+All three application tables own rows via `user_id` with `REFERENCES auth.users(id) ON DELETE CASCADE` (Stage 4B2 added the FK on `gp_settings`). Unique ownership: one `gp_settings` / `pricing_policy` row per user; many `serving_sizes` rows per user.
 
-`pricing_policy.user_id` **does** have `REFERENCES auth.users(id) ON DELETE CASCADE` plus `UNIQUE(user_id)`.
+### Table grants (Stage 4B2)
+
+| Table | anon | authenticated |
+|-------|------|---------------|
+| `gp_settings` | none | SELECT, INSERT, UPDATE |
+| `pricing_policy` | none | SELECT, INSERT, UPDATE |
+| `serving_sizes` | none | SELECT, INSERT, UPDATE, DELETE |
+
+`service_role` retains broad administrative privileges and must never enter browser code. RLS remains mandatory in addition to grants.
 
 ---
 
@@ -99,6 +107,7 @@ Logical relationship: `gp_settings.user_id` corresponds to `auth.users.id`.
 |------|------------|
 | `gp_settings_pkey` | PRIMARY KEY (`id`) — unique btree index |
 | `gp_settings_user_id_key` | UNIQUE (`user_id`) — unique btree index |
+| `gp_settings_user_id_fkey` | FOREIGN KEY (`user_id`) → `auth.users(id)` ON DELETE CASCADE |
 
 #### RLS policy
 
@@ -106,7 +115,7 @@ Logical relationship: `gp_settings.user_id` corresponds to `auth.users.id`.
 |-------------|---------|---------------------|
 | `Policy with security definer functions` | ALL | `auth.uid() = user_id` |
 
-Authenticated users can only CRUD their own row. Anon users cannot access rows under this policy.
+Authenticated users can SELECT/INSERT/UPDATE their own row (no DELETE grant). Anon has no table privileges. Legacy policy name retained; no security-definer function exists.
 
 #### Write patterns in code
 
@@ -159,7 +168,7 @@ Authenticated users can only CRUD their own row. Anon users cannot access rows u
 | `pricing_policy_insert_own` | INSERT | authenticated | `auth.uid() = user_id` |
 | `pricing_policy_update_own` | UPDATE | authenticated | `auth.uid() = user_id` |
 
-No DELETE policy (app does not delete policies). Anon has no permissive policy; RLS prevents anonymous row access.
+No DELETE policy and no authenticated DELETE grant (app does not delete policies). Anon has no table privileges (Stage 4B2).
 
 #### Provisioning
 
@@ -332,7 +341,7 @@ Active calculator and Pricing Rules code imports these types. There is no second
 
 | From | To | Cardinality | Mechanism |
 |------|----|-------------|-----------|
-| Auth user | `gp_settings` | 0..1 | `user_id` unique + app logic (no FK) |
+| Auth user | `gp_settings` | 0..1 | `user_id` unique + FK CASCADE |
 | Auth user | `pricing_policy` | 0..1 | `user_id` unique + FK CASCADE + app provisioning |
 | Auth user | `serving_sizes` | 0..n | FK CASCADE; unique label per user+category |
 | `gp_settings.rules` | Rule objects | 0..n in JSON array | Application convention |

@@ -192,11 +192,12 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `uuid` PK | `gen_random_uuid()` |
-| `user_id` | `uuid` UNIQUE NOT NULL | Logical owner; **no FK** to `auth.users` |
+| `user_id` | `uuid` UNIQUE NOT NULL | FK → `auth.users` ON DELETE CASCADE (Stage 4B2) |
 | `rules` | `jsonb` nullable | Rule array |
 | `created_at` | `timestamp` | Default `now()` |
 
-- **RLS:** enabled; policy `"Policy with security definer functions"` allows ALL where `auth.uid() = user_id` (USING + WITH CHECK).
+- **RLS:** enabled; policy `"Policy with security definer functions"` allows ALL where `auth.uid() = user_id` (USING + WITH CHECK). Legacy name retained; no security-definer function exists.
+- **Grants (Stage 4B2):** `authenticated` SELECT/INSERT/UPDATE only; `anon` none.
 
 ### `public.pricing_policy` (Stage 3B)
 
@@ -211,7 +212,7 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `created_at` / `updated_at` | `timestamptz` | |
 
 - **RLS:** select/insert/update own row for `authenticated` only.
-- **Migrations:** baseline `20261019134900` + `20261019223922_create_pricing_policy` + `20261022104800_create_serving_sizes` (applied locally and remotely).
+- **Grants (Stage 4B2):** `authenticated` SELECT/INSERT/UPDATE only; `anon` none.
 
 ### `public.serving_sizes` (Stage 3C)
 
@@ -223,10 +224,22 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `user_id` | FK → `auth.users` ON DELETE CASCADE |
 
 - **RLS:** select/insert/update/delete own rows for `authenticated`.
+- **Grants (Stage 4B2):** `authenticated` SELECT/INSERT/UPDATE/DELETE; `anon` none.
 - **Provisioning:** seeded for existing users in migration; future users seeded only on first Pricing Policy creation.
 - **Helpers:** `src/lib/servingSizeStore.ts`, defaults in `src/lib/servingSizeDefaults.ts`.
 
+**Migrations applied:** `20261019134900`, `20261019223922`, `20261022104800`, `20261026194756_harden_database_access` (Stage 4B2 FK + grants + postgres default-privilege hardening).
+
 Row counts are volatile point-in-time observations and are not architectural facts.
+
+### Grants vs RLS
+
+| Layer | Role |
+|-------|------|
+| SQL grants | Which operations a role may attempt |
+| RLS | Which rows an authenticated identity may access |
+
+Both are intentional. RLS remains the row-security authority.
 
 ---
 
@@ -274,8 +287,8 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 ## Database Development Workflow
 
 - Source-controlled Supabase migrations exist under `supabase/migrations/`.
-- Stage 3A baselined `gp_settings`; Stage 3B added `pricing_policy`; Stage 3C added `serving_sizes`.
-- Future application schema changes are **migration-first** (see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
+- Stages 3A–3C established tables; Stage 4B2 hardened `gp_settings` FK, grants, and `postgres` default privileges.
+- Future application schema changes are **migration-first** with **explicit grants + RLS** (see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
 - Authority: migrations = intended/applied evolution; live Supabase = deployed state; this doc / `DATA_MODEL.md` = human-readable.
 - Dashboard-only schema edits should not be normal practice; reconcile any emergency manual changes into migrations.
 
@@ -292,7 +305,8 @@ Local Docker is not required merely to author or review migrations.
 | Remaining `npm audit` findings | Still present (high/moderate/low; total 26 at verification) — not claimed cleared |
 | Supabase / runtime dependency hygiene | Future-scoped work |
 | Env-based client config + closed signup (Stage 4B1) | **Done** |
-| Remaining grants / `gp_settings` FK / import trust boundary | Stage 4B2+ |
+| `gp_settings` FK + grant/default-privilege hardening (Stage 4B2) | **Done** |
+| Import trust boundary for commercial sales | Later stage |
 
 **Do not claim complete security clearance.**
 
@@ -304,8 +318,8 @@ Prioritised for orientation (not exhaustive assessment dump):
 
 1. Persisted rule sets that historically relied on silent 70% gap behaviour surface explicit calculator errors until rules are fixed.
 2. Wine categories remain fixed (not user-configurable).
-3. `gp_settings.user_id` still has no foreign key to `auth.users` (Stage 4B2).
-4. Broad default/table grants remain; RLS is the effective control (Stage 4B2).
+3. Misleading legacy `gp_settings` policy name (semantics correct; rename deferred).
+4. Residual `supabase_admin` default ACL still auto-grants broad public-table rights if objects are created as that role (migrations use `postgres`; postgres defaults hardened).
 5. No Next middleware — protection remains per-page `getSession` (deferred).
 
 ---

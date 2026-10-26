@@ -308,7 +308,7 @@ Calculation results are **not** written to the database.
 2. **Runtime pricing policy** is the persisted `pricing_policy` row. `DEFAULT_PRICING_POLICY` (VAT 0.2, BTG discount 0.05, bottle £1, pour £0.50) is for tests and for alignment with database column defaults. It is not a calculator fallback.
 3. **Rules JSON shape** must remain compatible with the `Rule` union in `src/types/rules.ts`.
 4. **One `gp_settings` row per user** (`user_id` UNIQUE); save paths assume that.
-5. **RLS** requires `auth.uid() = user_id` — the client must be authenticated for read/write.
+5. **RLS** requires `auth.uid() = user_id` — the client must be authenticated for read/write. Explicit table grants are also required (Stage 4B2); do not rely on default privileges for new tables.
 6. **Client-only Supabase key** is the publishable/anon key pattern; never add service-role keys to frontend.
 7. Import rule types from `@/types/rules`. Category ids and labels live in `@/types/servingSizes`.
 8. BTG affects the bottle-line discount only. It does not change rule-selected GP. Pours use the undiscounted bottle basis.
@@ -322,8 +322,8 @@ Supported by the repository / live DB (not invented):
 1. **No Next middleware** — protection is per-page `getSession` only (deferred).
 2. **README** is still create-next-app boilerplate.
 3. **Legacy rule gaps** that previously fell through to silent 70% fail closed in the calculator until the rule set is corrected.
-4. `gp_settings.user_id` has no foreign key to `auth.users` (Stage 4B2).
-5. Broad table/default grants remain; RLS is the effective control (Stage 4B2).
+4. Misleading legacy `gp_settings` RLS policy name (semantics correct; rename deferred).
+5. Residual `supabase_admin` default ACL for public tables (migrations use hardened `postgres` defaults).
 
 ---
 
@@ -338,6 +338,7 @@ Supported by the repository / live DB (not invented):
 | User-configurable pricing policy UI | Implemented (`/settings`, Stage 3B) |
 | User-configurable serving sizes UI | Implemented (`/settings`, Stage 3C) |
 | Env-based configuration | Implemented (`NEXT_PUBLIC_SUPABASE_*`, Stage 4B1) |
+| DB ownership FK + grants hardening | Implemented (Stage 4B2) |
 | API layer | Not present (by design currently) |
 | Multi-tenant / org features | Not present |
 

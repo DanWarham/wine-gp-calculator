@@ -104,20 +104,20 @@ If migrations and live state disagree, investigate the drift before changing eit
 | Live schema change in 3A | **None** — baseline describes reality; it must not be re-executed against the existing live DB |
 | Remote history | Baseline `20261019134900` marked applied via `migration repair`; Stage 3B `20261019223922_create_pricing_policy` applied with `db push`. |
 
-Application expectations for schema (unchanged by Stage 3A):
+Application schema expectations (current):
 
-- Table `public.gp_settings` with `id`, `user_id` (unique), `rules` (jsonb), `created_at`
-- RLS: `auth.uid() = user_id` (policy name preserved in baseline)
-- Supabase Auth enabled for email/password
-- **No** FK from `gp_settings.user_id` to `auth.users` (current reality; improve only via a later explicit migration)
+- Table `public.gp_settings` with `id`, `user_id` (unique + FK → `auth.users` ON DELETE CASCADE), `rules` (jsonb), `created_at`
+- RLS: `auth.uid() = user_id` (legacy policy name preserved)
+- Supabase Auth enabled for email/password; public signup disabled (Stage 4B1)
+- Stage 4B2 tightened grants and `postgres` default privileges (see below)
 
 ### Future migration process
 
 1. Understand the required schema change.
 2. Create a new source-controlled migration (`npx supabase migration new <name>`).
-3. Review: schema impact, data impact, RLS/security, compatibility with application code.
+3. Review: schema impact, data impact, RLS/security, grants, compatibility with application code.
 4. Apply the migration to the appropriate linked Supabase environment (`npx supabase db push` or equivalent CI).
-5. Verify: migration recorded as applied; expected schema/RLS present; application behaviour remains valid.
+5. Verify: migration recorded as applied; expected schema/RLS/grants present; application behaviour remains valid.
 6. Commit the migration with the related implementation.
 
 Principles:
@@ -125,8 +125,21 @@ Principles:
 - Migrations are authoritative for application schema evolution.
 - Dashboard-only schema edits should not be normal development practice.
 - Emergency/manual remote changes must subsequently be reconciled with migrations (`db pull` / repair as appropriate).
-- Every new user-owned table requires explicit RLS consideration.
+- Every new user-owned table requires **RLS + explicit SQL grants** (do not rely on default privileges).
 - Application code and migrations that depend on one another should be reviewed/deployed coherently.
+
+### Grants convention (Stage 4B2+)
+
+After Stage 4B2, creating a new `public` table as role `postgres` no longer automatically grants broad table rights to `anon` / `authenticated`. Future migrations must explicitly:
+
+```sql
+ALTER TABLE ... ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ...;
+REVOKE ALL ON TABLE ... FROM anon;
+GRANT SELECT, INSERT, UPDATE [, DELETE] ON TABLE ... TO authenticated;
+```
+
+Use only the operations the application actually needs. RLS remains mandatory and is still the row-security authority.
 
 ### CLI notes
 
