@@ -1,6 +1,6 @@
 # Current Implementation — Wine GP Calculator
 
-Canonical description of **material current technical reality** after the accepted Phase 0 dependency security correction (Next.js upgraded to `15.5.28`).
+Canonical description of **material current technical reality** after Phase 0 (Next.js `15.5.28`) and Stage 4B3 selective dependency remediation (`@supabase/supabase-js` `2.118.0`).
 
 **Authority:** Repository and database evidence determine what is currently implemented. This document describes that reality and should change as it changes. Intended enduring architecture lives in [`05-project-architecture.md`](./05-project-architecture.md). Detailed supporting material remains in [`AI_CONTEXT.md`](./AI_CONTEXT.md), [`ARCHITECTURE.md`](./ARCHITECTURE.md), [`DATA_MODEL.md`](./DATA_MODEL.md), and [`DEVELOPMENT.md`](./DEVELOPMENT.md). If these sources materially disagree, investigate rather than silently reconciling them.
 
@@ -10,17 +10,18 @@ Do not treat assessment recommendations or intended architecture as implemented 
 
 ## Technology Stack
 
-Resolved from `package.json` / `package-lock.json` (verified 2026-10-19):
+Resolved from `package.json` / `package-lock.json` (verified Stage 4B3, 2026-10-26):
 
 | Layer | Choice | Version |
 |-------|--------|---------|
+| Runtime | Node.js | **22 LTS** required (`engines.node` `>=22`, `.nvmrc` `22`) |
 | Framework | Next.js (App Router) | `15.5.28` |
 | UI | React / React DOM | `19.1.0` |
 | Language | TypeScript | `5.8.3` (`strict: true`) |
 | Styling | Tailwind CSS | `4.1.4` (via `@tailwindcss/postcss`) |
 | Components | shadcn “new-york” style + Radix Slot/Toggle | `components.json` |
 | Dialogs | `@headlessui/react` | used on GP setup gap modal |
-| Backend / Auth / DB | Supabase | `@supabase/supabase-js` `2.49.4` |
+| Backend / Auth / DB | Supabase | `@supabase/supabase-js` `^2.118.0` (resolved `2.118.0`) |
 
 Other dependencies exist (e.g. `lucide-react`, `class-variance-authority`); they are not architectural drivers.
 
@@ -296,17 +297,31 @@ Local Docker is not required merely to author or review migrations.
 
 ---
 
-## Security State (after Phase 0)
+## Security State (after Phase 0 + Stage 4B1–4B3)
 
 | Item | Status |
 |------|--------|
-| Next.js | Upgraded to **`15.5.28`** |
-| Critical React Flight RCE advisory motivating Phase 0 | **Cleared** (`npm audit` critical count = 0 as of verification) |
-| Remaining `npm audit` findings | Still present (high/moderate/low; total 26 at verification) — not claimed cleared |
-| Supabase / runtime dependency hygiene | Future-scoped work |
+| Next.js | Remains **`15.5.28`** (patched 15.x; no Next 16 upgrade) |
+| Critical React Flight / Image Optimization advisories motivating Phase 0 / 4B3 Next line | Cleared on current 15.5.28 install |
+| `@supabase/supabase-js` | Updated to stable **`2.118.0`** (Stage 4B3); no canary; no child-package overrides |
+| Node runtime | **Node 22 LTS** required (Stage 4B3 amendment); Node 20 unsupported by supabase-js 2.110+ |
 | Env-based client config + closed signup (Stage 4B1) | **Done** |
 | `gp_settings` FK + grant/default-privilege hardening (Stage 4B2) | **Done** |
+| Selective dependency remediation (Stage 4B3) | **Done** — targeted runtime update only; no `npm audit fix --force` |
+| Residual `npm audit` findings | Accepted where development-only or Next-controlled transitive (see below) |
 | Import trust boundary for commercial sales | Later stage |
+
+### Residual accepted audit findings (Stage 4B3)
+
+Post-4B3 `npm audit`: **14** findings (2 critical, 6 high, 4 moderate, 2 low). Count is not clearance. Material residual classes:
+
+| Class | Examples | Production? | Why retained | Revisit when |
+|-------|----------|-------------|--------------|--------------|
+| Next transitive | `postcss` under `next@15.5.28` | Build/runtime via Next | Upstream pins; fix path proposes Next 16 | Compatible Next 15.x patch or planned Next major |
+| Vitest toolchain | `tinypool` (critical), `@vitest/mocker` | Dev/test only | Fix requires Vitest 4 major | Planned tooling refresh |
+| ESLint/toolchain | `eslint` / `@eslint/plugin-kit`, `brace-expansion`, `minimatch`, `js-yaml`, `flatted`, `ajv`, `picomatch`, `@humanfs/node` | Dev/lint only | Compatible patches possible later; not production runtime | Compatible minor bumps or ESLint refresh |
+
+`@supabase/auth-js` and `ws` advisories from Stage 4A are **not** present after the 2.118.0 update (`ws` no longer in the tree).
 
 **Do not claim complete security clearance.**
 

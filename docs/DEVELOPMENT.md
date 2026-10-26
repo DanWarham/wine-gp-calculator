@@ -10,7 +10,7 @@ Practical setup and workflow notes derived from the repository as it exists toda
 
 ### Prerequisites
 
-- **Node.js** compatible with Next.js 15 / React 19 (exact engine not pinned in `package.json`; use a current LTS).
+- **Node.js 22 LTS** (required). `package.json` `engines.node` is `>=22`; `.nvmrc` pins `22`. `@supabase/supabase-js` `2.118+` does not support Node 20. Use fnm/nvm (or equivalent) so `node --version` reports 22.x before install/dev.
 - **npm** (lockfile is `package-lock.json`; yarn/pnpm/bun mentioned only in stock README).
 - Access to the project’s **Supabase** instance (browser-safe URL + anon/publishable key).
 
@@ -182,6 +182,20 @@ To inspect live schema (operators with project access): Supabase dashboard SQL e
 **Not in repo:** `vercel.json`, Docker, CI workflows.
 
 **Assumption:** Production hosting is Vercel or equivalent Node host. Confirm with the owner.
+
+---
+
+## Dependencies / security hygiene
+
+| Item | Current practice |
+|------|------------------|
+| Node runtime | **22 LTS** required (`engines.node` `>=22`, `.nvmrc`); do not develop on Node 20 |
+| Direct runtime client | `@supabase/supabase-js` stable v2 (`2.118.0` as of Stage 4B3) |
+| Framework | Next.js **`15.5.28`** — do not jump to Next 16 solely for audit silence |
+| Prohibited | `npm audit fix --force`; unsupported child-package overrides; canary supabase builds |
+| Residual audit | Development/toolchain and Next-pinned `postcss` findings may remain; see [`06-current-implementation.md`](./06-current-implementation.md) residual register |
+
+Schema/auth/RLS are unchanged by Stage 4B3 (dependency-only).
 
 ---
 

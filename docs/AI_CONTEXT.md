@@ -209,6 +209,7 @@ Supabase Postgres (public.gp_settings + auth.users)
 
 | Layer | Choice | Version / notes |
 |-------|--------|-----------------|
+| Runtime | Node.js | **22 LTS** required (`engines` `>=22`, `.nvmrc`) |
 | Framework | Next.js App Router | `15.5.28` |
 | UI | React | `^19` |
 | Language | TypeScript | `^5`, `strict: true` |
@@ -216,7 +217,7 @@ Supabase Postgres (public.gp_settings + auth.users)
 | Components | shadcn “new-york” + Radix Slot/Toggle | `components.json` |
 | Icons | lucide-react | dependency present; limited use |
 | Dialogs | `@headlessui/react` | gap modal on GP setup |
-| Backend / DB / Auth | Supabase | `@supabase/supabase-js` `^2.49.4` |
+| Backend / DB / Auth | Supabase | `@supabase/supabase-js` `^2.118.0` (Stage 4B3) |
 | Hosting (assumed) | Vercel-oriented Next app; stock README deploy notes; **no** `vercel.json` in repo | Assumption for deploy target |
 
 ---
@@ -339,6 +340,7 @@ Supported by the repository / live DB (not invented):
 | User-configurable serving sizes UI | Implemented (`/settings`, Stage 3C) |
 | Env-based configuration | Implemented (`NEXT_PUBLIC_SUPABASE_*`, Stage 4B1) |
 | DB ownership FK + grants hardening | Implemented (Stage 4B2) |
+| Selective dependency remediation | Implemented (Stage 4B3: supabase-js 2.118.0; Next remains 15.5.28; Node 22 LTS required) |
 | API layer | Not present (by design currently) |
 | Multi-tenant / org features | Not present |
 
