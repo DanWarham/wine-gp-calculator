@@ -12,7 +12,7 @@ Practical setup and workflow notes derived from the repository as it exists toda
 
 - **Node.js** compatible with Next.js 15 / React 19 (exact engine not pinned in `package.json`; use a current LTS).
 - **npm** (lockfile is `package-lock.json`; yarn/pnpm/bun mentioned only in stock README).
-- Access to the project’s **Supabase** instance (URL + anon key currently baked into `src/lib/supabaseClient.ts`).
+- Access to the project’s **Supabase** instance (browser-safe URL + anon/publishable key).
 
 ### Steps
 
@@ -21,15 +21,22 @@ Practical setup and workflow notes derived from the repository as it exists toda
    ```bash
    npm install
    ```
-3. Start the dev server:
+3. Copy `.env.example` to `.env.local` and fill in the project’s browser-safe values:
+   ```bash
+   NEXT_PUBLIC_SUPABASE_URL=
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=
+   ```
+4. Start the dev server:
    ```bash
    npm run dev
    ```
-4. Open [http://localhost:3000](http://localhost:3000).
+5. Open [http://localhost:3000](http://localhost:3000).
 
-**Note:** Application code does **not** load `.env` variables today. Creating a `.env.local` will have **no effect** until `supabaseClient.ts` is changed to read `process.env`.
+Missing either env var causes a clear configuration error (no hardcoded fallback).
 
-**Assumption:** Local development uses the shared remote Supabase project referenced in `supabaseClient.ts` (project ref `jcylgbtifwpcjncnnfok`). A `supabase/` directory with config and migrations exists for schema governance. A full local Supabase Docker stack is **not** required for day-to-day app work.
+**Assumption:** Local development uses the shared remote Supabase project (project ref `jcylgbtifwpcjncnnfok`). A `supabase/` directory with config and migrations exists for schema governance. A full local Supabase Docker stack is **not** required for day-to-day app work.
+
+**Accounts:** Public self-registration is disabled. New users are created by an administrator through Supabase’s supported Auth admin/manual mechanisms.
 
 ---
 
@@ -53,26 +60,25 @@ Only scripts defined in `package.json`:
 
 ## Environment Variables
 
-### Referenced by application code
-
-**None.** Grep of `src/` shows no `process.env` / `NEXT_PUBLIC_*` usage.
-
-Supabase configuration is **hardcoded** in `src/lib/supabaseClient.ts`:
-
-- Project URL
-- Anon (publishable) key
-
-### Anticipated by tooling / gitignore
-
-`.gitignore` ignores `.env*`, implying env files may be added later. Recommended shape **if** the client is refactored (placeholders only — do not commit real values):
+### Browser-safe (required)
 
 ```bash
-# .env.local.example (proposed — not currently in repo)
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_ANON_KEY
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ```
 
-Never commit service-role keys. Never paste real credentials into documentation.
+Read by `src/lib/supabaseEnv.ts` / `src/lib/supabaseClient.ts`. Placeholders live in committed `.env.example`. Real values belong in ignored `.env.local` (and host env for deploys).
+
+### Server-only (if introduced later — never `NEXT_PUBLIC_*`)
+
+```text
+SUPABASE_SERVICE_ROLE_KEY
+database URLs / passwords
+management API tokens
+other privileged credentials
+```
+
+Never commit service-role keys or other privileged credentials. Never paste real credentials into documentation.
 
 ---
 
@@ -158,9 +164,9 @@ To inspect live schema (operators with project access): Supabase dashboard SQL e
 
 1. Build with `npm run build`.
 2. Run with `npm run start`, **or** deploy as a standard Next.js app on a platform such as Vercel (README boilerplate points here).
-3. Ensure the deployed build can reach the Supabase project (today: hardcoded client config ships with the bundle).
+3. Ensure the host provides `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 
-**Not in repo:** `vercel.json`, Docker, CI workflows, environment setup docs beyond create-next-app README.
+**Not in repo:** `vercel.json`, Docker, CI workflows.
 
 **Assumption:** Production hosting is Vercel or equivalent Node host. Confirm with the owner.
 

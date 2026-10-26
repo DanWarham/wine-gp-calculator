@@ -320,7 +320,7 @@ Unresolved; do not silently resolve in implementation work.
 
 ### Registration
 
-Current signup is open. Post-sales-data registration posture remains unresolved.
+**Decision (Stage 4B1):** Public self-registration is disabled. New Wine GP Calculator accounts are administrator-controlled via Supabase Auth admin/manual provisioning. Invite/org management remains out of scope for now.
 
 ### Raw import retention
 

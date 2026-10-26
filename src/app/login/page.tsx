@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { supabase } from "@/lib/supabaseClient"
+import { mapLoginError } from "@/lib/authErrors"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,7 +16,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState<string>("")
   const [password, setPassword] = useState<string>("")
   const [loading, setLoading] = useState<boolean>(false)
-  const [fadeOut, setFadeOut] = useState<boolean>(false)
   const [showPassword, setShowPassword] = useState<boolean>(false)
 
   const handleLogin = async () => {
@@ -27,36 +27,19 @@ export default function LoginPage() {
     })
 
     if (error) {
-      const { data, error: lookupError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', email)
-        .single()
-
-      if (lookupError || !data) {
-        showToast("❌ Email not found", "error")
-      } else {
-        showToast("❌ Incorrect password. Please try again.", "error")
-      }
+      showToast(mapLoginError(error), "error")
     } else {
-      showToast("✅ Logged in successfully!", "success")
+      showToast("Logged in successfully.", "success")
       setTimeout(() => {
-        router.push("/") // Redirect to home after login
+        router.push("/")
       }, 1000)
     }
 
     setLoading(false)
   }
 
-  const handleGoToSignup = () => {
-    setFadeOut(true)
-    setTimeout(() => {
-      router.push('/signup')
-    }, 300) // 300ms fade
-  }
-
   return (
-    <main className={`p-6 max-w-md mx-auto flex flex-col justify-center min-h-screen transition-opacity duration-300 ${fadeOut ? 'opacity-0' : 'opacity-100'}`}>
+    <main className="p-6 max-w-md mx-auto flex flex-col justify-center min-h-screen">
       <Card className="shadow-md">
         <CardContent className="space-y-6 py-8">
           <h1 className="text-2xl font-bold text-center">Log In</h1>
@@ -96,16 +79,6 @@ export default function LoginPage() {
             className="w-full"
           >
             {loading ? "Logging in..." : "Log In"}
-          </Button>
-
-          <div className="text-center py-4 text-gray-500">— OR —</div>
-
-          <Button
-            variant="outline"
-            onClick={handleGoToSignup}
-            className="w-full"
-          >
-            Register
           </Button>
         </CardContent>
       </Card>

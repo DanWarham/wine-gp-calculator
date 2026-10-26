@@ -23,7 +23,7 @@ The app is a thin **Next.js frontend** over **Supabase Auth + Postgres**. There 
 ```mermaid
 flowchart TB
   subgraph client ["Browser — Next.js App Router"]
-    Pages["Pages\nwelcome / login / signup /\nhome calculator / gp-setup"]
+    Pages["Pages\nwelcome / login /\nhome calculator / gp-setup / settings"]
     UI["UI components\nshadcn + Headless UI"]
     Domain["Pricing domain\nsrc/lib/pricing"]
     SBClient["supabase-js client"]
@@ -55,12 +55,13 @@ flowchart TB
 
 | Path | File | Auth expectation | Purpose |
 |------|------|------------------|---------|
-| `/welcome` | `src/app/welcome/page.tsx` | Public | Entry CTA |
+| `/welcome` | `src/app/welcome/page.tsx` | Public | Entry CTA (Login) |
 | `/login` | `src/app/login/page.tsx` | Public | Sign in |
-| `/signup` | `src/app/signup/page.tsx` | Public | Register |
 | `/` | `src/app/page.tsx` | Session required (client check) | Calculator |
 | `/gp-setup` | `src/app/gp-setup/page.tsx` | Session required | Pricing Rules |
 | `/settings` | `src/app/settings/page.tsx` | Session required | Pricing Policy and Serving Sizes |
+
+`/signup` removed (Stage 4B1). Public self-registration is disabled; accounts are administrator-controlled.
 
 There is **no** `middleware.ts` for route protection.
 
@@ -72,8 +73,8 @@ There is **no** `middleware.ts` for route protection.
 
 Persistence and auth are entirely **Supabase**:
 
-- Browser creates a singleton client in `src/lib/supabaseClient.ts`.
-- Credentials are **hardcoded** (URL + anon key), not read from `process.env`.
+- Browser creates a singleton client in `src/lib/supabaseClient.ts` from `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` (`src/lib/supabaseEnv.ts`).
+- Missing required env vars fail clearly (no hardcoded fallback). Privileged credentials must never use `NEXT_PUBLIC_*`.
 - Data access uses the Supabase REST/Data API via `.from('gp_settings')`, `.from('pricing_policy')`, `.from('serving_sizes')`, and Auth methods.
 
 ### API structure
@@ -89,7 +90,6 @@ Effective “API” surface used by the app:
 
 | Operation | Client call |
 |-----------|-------------|
-| Sign up | `supabase.auth.signUp({ email, password })` |
 | Sign in | `supabase.auth.signInWithPassword({ email, password })` |
 | Sign out | `supabase.auth.signOut()` |
 | Session | `supabase.auth.getSession()` |
@@ -98,7 +98,7 @@ Effective “API” surface used by the app:
 | Update rules | `from('gp_settings').update({ rules }).eq('user_id', id)` |
 | Load / create pricing policy | `src/lib/pricingPolicyStore.ts` |
 | Serving size CRUD | `src/lib/servingSizeStore.ts` |
-| Email lookup on failed login | `from('users').select('id').eq('email', email).single()` — **broken relative to live schema** (no `public.users`) |
+| Login failure mapping | `mapLoginError` — generic invalid credentials; no account-existence lookup |
 
 ---
 
@@ -151,15 +151,15 @@ erDiagram
 sequenceDiagram
   participant U as User
   participant W as /welcome
-  participant L as /login or /signup
+  participant L as /login
   participant S as Supabase Auth
   participant H as / (calculator)
   participant DB as gp_settings
 
   U->>W: Open app
-  W->>L: Login or Register
-  L->>S: signIn / signUp
-  S-->>L: session (or verify-email path)
+  W->>L: Login
+  L->>S: signInWithPassword
+  S-->>L: session
   L->>H: router.push("/")
   H->>S: getSession()
   alt no session
@@ -176,8 +176,8 @@ sequenceDiagram
 
 **Notes:**
 
-- Signup may return without a session if email confirmation is enabled in the Supabase project; UI then asks the user to check email (`signup/page.tsx`).
-- Password rules are enforced in the signup UI; server-side Auth policies are configured in Supabase (not in this repo).
+- Public signup is disabled on the linked Supabase project. New accounts are created administratively.
+- Server-side Auth password minimum is 8 characters. Login failures use a generic non-enumerating message.
 
 ---
 
@@ -196,7 +196,7 @@ No payment, email-sending SDK, analytics, or wine data APIs appear in dependenci
 
 | Area | Pattern |
 |------|---------|
-| Login/signup | Toast messages via `useToast`; special-cases for rate limit / already registered |
+| Login | Toast messages via `useToast`; `mapLoginError` for generic/network failures |
 | Calculator | Inline cost validation errors; missing rules → blocking modal |
 | GP setup | Inline `error` string; Headless UI dialog for gaps; `confirm()` for deletes |
 | Supabase errors | Often `.message` surfaced as text; some paths `console.error` |
@@ -218,7 +218,7 @@ There is no global error boundary component in the repo.
 | `package.json` | Scripts and dependencies |
 | `.gitignore` | Ignores `.env*`, `.next`, `node_modules`, `.vercel` |
 
-**Runtime secrets/config:** currently embedded in `supabaseClient.ts` rather than environment variables. `.gitignore` anticipates `.env*` files, but none are used by application code today.
+**Runtime secrets/config:** browser-safe Supabase values from `NEXT_PUBLIC_*` env vars (see `.env.example`). `.gitignore` ignores `.env*` except `.env.example`.
 
 ---
 

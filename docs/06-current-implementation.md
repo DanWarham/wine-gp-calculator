@@ -49,12 +49,13 @@ Supabase Auth + Postgres
 
 | Path | Purpose | Notes |
 |------|---------|-------|
-| `/welcome` | Public entry (Login / Register) | |
-| `/login` | Email/password sign-in | |
-| `/signup` | Email/password registration | Open signup |
+| `/welcome` | Public entry (Login) | Public self-registration removed (Stage 4B1) |
+| `/login` | Email/password sign-in | Generic non-enumerating failure messages |
 | `/` | Wine price calculator | Loads persisted rules, pricing policy, and serving sizes |
 | `/gp-setup` | Pricing Rules editor | GP bands; separate from Settings |
 | `/settings` | Pricing Policy + Serving Sizes | VAT/BTG/rounding; per-category pour sizes |
+
+`/signup` is intentionally unsupported (404). New accounts are administrator-controlled via Supabase Auth admin/manual provisioning.
 
 Navigation on Calculator, Pricing Rules, and Settings names those three destinations and marks the current one. `/gp-setup/custom` has been removed; that URL is a normal 404.
 
@@ -234,11 +235,14 @@ Row counts are volatile point-in-time observations and are not architectural fac
 | Concern | Current state |
 |---------|---------------|
 | Auth provider | Supabase Auth email/password |
-| Signup / login / logout | Implemented client-side |
+| Public signup | **Disabled** (Stage 4B1). Accounts are administrator-controlled |
+| Login / logout | Implemented client-side |
+| Login failures | Generic “Invalid email or password.” — no account-existence lookup |
 | Session gates | Per-page `getSession()`; redirect to `/welcome` |
-| RLS boundary | `gp_settings` owned by `auth.uid()` |
-| Login defect | Failed-login path queries `public.users` — table **does not exist** (only `auth.users`). Lookup always fails; messaging can mislead |
-| Leaked-password protection | Supabase security advisor: **disabled** (WARN) — still current |
+| RLS boundary | User-owned tables gated by `auth.uid() = user_id` |
+| Server password minimum | **8** characters (aligned with former UI policy) |
+| Email autoconfirm | Still **enabled** on the live project (deferred; public signup is the required control) |
+| Leaked-password protection | Supabase security advisor: **disabled** (WARN) — Free-plan limitation |
 
 ---
 
@@ -246,10 +250,12 @@ Row counts are volatile point-in-time observations and are not architectural fac
 
 | Item | Reality |
 |------|---------|
-| Supabase URL + anon key | **Hardcoded** in `src/lib/supabaseClient.ts` |
-| `process.env` / `NEXT_PUBLIC_*` | Not used by application code |
-| `.env*` | Ignored by git; unused by app today |
-| Deploy evidence | Standard Next app; README Vercel boilerplate; no `vercel.json` / CI / Docker in repo |
+| Supabase URL + anon key | From `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` via `src/lib/supabaseEnv.ts` |
+| Missing env | Clear configuration error (no hardcoded fallback) |
+| `.env.example` | Placeholders only (committed) |
+| `.env.local` | Local ignored file for real browser-safe values |
+| Privileged credentials | Must never use `NEXT_PUBLIC_*`; none in browser code |
+| Deploy evidence | Standard Next app; host must supply the two `NEXT_PUBLIC_*` vars |
 
 Assumption: production is a Next.js host (often Vercel) plus hosted Supabase — confirm with owner if different.
 
@@ -285,7 +291,8 @@ Local Docker is not required merely to author or review migrations.
 | Critical React Flight RCE advisory motivating Phase 0 | **Cleared** (`npm audit` critical count = 0 as of verification) |
 | Remaining `npm audit` findings | Still present (high/moderate/low; total 26 at verification) — not claimed cleared |
 | Supabase / runtime dependency hygiene | Future-scoped work |
-| Hardcoded client config, open signup, no import trust boundary | Unchanged |
+| Env-based client config + closed signup (Stage 4B1) | **Done** |
+| Remaining grants / `gp_settings` FK / import trust boundary | Stage 4B2+ |
 
 **Do not claim complete security clearance.**
 
@@ -295,11 +302,11 @@ Local Docker is not required merely to author or review migrations.
 
 Prioritised for orientation (not exhaustive assessment dump):
 
-1. Broken `public.users` login lookup.
-2. Hardcoded Supabase configuration.
-3. Persisted rule sets that historically relied on silent 70% gap behaviour surface explicit calculator errors until rules are fixed.
-4. Wine categories remain fixed (not user-configurable).
-5. `gp_settings.user_id` still has no foreign key to `auth.users`.
+1. Persisted rule sets that historically relied on silent 70% gap behaviour surface explicit calculator errors until rules are fixed.
+2. Wine categories remain fixed (not user-configurable).
+3. `gp_settings.user_id` still has no foreign key to `auth.users` (Stage 4B2).
+4. Broad default/table grants remain; RLS is the effective control (Stage 4B2).
+5. No Next middleware — protection remains per-page `getSession` (deferred).
 
 ---
 
@@ -307,7 +314,7 @@ Prioritised for orientation (not exhaustive assessment dump):
 
 | Capability | Status |
 |------------|--------|
-| Auth (signup / login / logout) | **Implemented** |
+| Auth (login / logout; admin-provisioned accounts) | **Implemented** (public signup disabled) |
 | Individual wine calculator | **Implemented** (uses shared engine) |
 | Pricing rule editing + GP persistence | **Implemented** |
 | Shared deterministic pricing engine | **Implemented** (`src/lib/pricing`) |

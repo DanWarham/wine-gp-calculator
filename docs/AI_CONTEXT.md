@@ -35,7 +35,7 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 
 **Typical workflow (from code):**
 
-1. Land on `/welcome` → Login (`/login`) or Register (`/signup`).
+1. Land on `/welcome` → Login (`/login`). Public self-registration is disabled; accounts are administrator-controlled.
 2. After auth, land on `/` (calculator). If no rules exist in `gp_settings`, a modal forces navigation to `/gp-setup`.
 3. On `/gp-setup`, create either a **Universal GP** rule or a **Custom Rule Set** (less-than / between / greater-than bands).
 4. Return to `/`, enter cost (ex VAT), wine type, bottle size, bottle vs by-the-glass, review suggested prices.
@@ -172,17 +172,17 @@ Final structural validity is `validateRuleSetForPricing` in `src/lib/pricing/val
 
 | Feature | How it works | Primary files |
 |---------|--------------|---------------|
-| Welcome / gate | Unauthenticated entry with Login / Register | `src/app/welcome/page.tsx` |
-| Email/password signup | Supabase `auth.signUp`; client-side password rules (8+, upper, lower, digit) | `src/app/signup/page.tsx` |
-| Login | `auth.signInWithPassword`; on failure attempts `.from('users')` email lookup (see Known Issues) | `src/app/login/page.tsx` |
+| Welcome / gate | Unauthenticated entry with Login | `src/app/welcome/page.tsx` |
+| Login | `auth.signInWithPassword`; generic non-enumerating failures via `mapLoginError` | `src/app/login/page.tsx`, `src/lib/authErrors.ts` |
 | Logout | `auth.signOut` → `/welcome` | Home page |
+| Account provisioning | Public signup disabled; administrator-controlled via Supabase Auth | Live Auth config |
 | Calculator | Cost, wine type, bottle size, BTG, GP nudge, price table | `src/app/page.tsx` + `src/lib/pricing` |
 | Force rule setup | Modal if no `gp_settings.rules` | Home page |
 | GP rule editor | Universal or custom bands; overlap/gap UX; persist to Supabase | `src/app/gp-setup/page.tsx` + rule form components |
 | Settings | Pricing Policy and Serving Sizes | `src/app/settings/page.tsx` |
-| Toasts | Success/error messages (login/signup) | `src/components/toast-provider.tsx` |
+| Toasts | Success/error messages (login) | `src/components/toast-provider.tsx` |
 
-**Not present:** wine inventory, multi-venue accounts, user-defined wine categories, server API routes, Next.js middleware auth guards.
+**Not present:** public `/signup`, wine inventory, multi-venue accounts, user-defined wine categories, server API routes, Next.js middleware auth guards.
 
 ---
 
@@ -240,7 +240,6 @@ wine-gp-calculator/
     │   ├── globals.css
     │   ├── welcome/page.tsx
     │   ├── login/page.tsx
-    │   ├── signup/page.tsx
     │   ├── gp-setup/page.tsx # Pricing Rules editor
     │   └── settings/page.tsx # Pricing Policy + Serving Sizes
     ├── components/
@@ -254,7 +253,9 @@ wine-gp-calculator/
     │   ├── servingSizeStore.ts
     │   ├── servingSizeDefaults.ts  # provisioning defaults only
     │   ├── wineCategories.ts # calculator wine type → category id
-    │   ├── supabaseClient.ts # Supabase client (hardcoded URL/anon key)
+    │   ├── supabaseEnv.ts    # required NEXT_PUBLIC_* browser config
+    │   ├── supabaseClient.ts # Supabase browser client from env
+    │   ├── authErrors.ts     # non-enumerating login error mapping
     │   └── utils.ts          # cn() classname helper
     └── types/
         ├── rules.ts          # canonical Rule union
@@ -277,8 +278,8 @@ wine-gp-calculator/
 | `src/app/settings/page.tsx` | Pricing Policy and Serving Size editor |
 | `src/lib/pricingPolicyStore.ts` | Load/create/save persisted pricing policy |
 | `src/lib/servingSizeStore.ts` | Serving size CRUD; calculator filtering |
-| `src/lib/supabaseClient.ts` | Single Supabase browser client |
-| `src/app/login/page.tsx` / `signup/page.tsx` | Auth flows |
+| `src/lib/supabaseEnv.ts` / `supabaseClient.ts` | Env-based Supabase browser client |
+| `src/app/login/page.tsx` | Login flow |
 | `src/components/rules/*.tsx` | Editable rule field UIs |
 | `src/components/toast-provider.tsx` | Toast context |
 | `src/components/ui/*` | Shared UI primitives |
@@ -318,12 +319,11 @@ Calculation results are **not** written to the database.
 
 Supported by the repository / live DB (not invented):
 
-1. **Hardcoded Supabase URL and anon key** in `src/lib/supabaseClient.ts` instead of env vars.
-2. **Login “email not found” path queries `.from('users')`**, but **no `public.users` table exists** (only `auth.users`).
-3. **No Next middleware** — protection is per-page `getSession` only.
-4. **README** is still create-next-app boilerplate.
-5. **Legacy rule gaps** that previously fell through to silent 70% fail closed in the calculator until the rule set is corrected.
-6. `gp_settings.user_id` has no foreign key to `auth.users`.
+1. **No Next middleware** — protection is per-page `getSession` only (deferred).
+2. **README** is still create-next-app boilerplate.
+3. **Legacy rule gaps** that previously fell through to silent 70% fail closed in the calculator until the rule set is corrected.
+4. `gp_settings.user_id` has no foreign key to `auth.users` (Stage 4B2).
+5. Broad table/default grants remain; RLS is the effective control (Stage 4B2).
 
 ---
 
@@ -331,13 +331,13 @@ Supported by the repository / live DB (not invented):
 
 | Area | State |
 |------|--------|
-| Auth (signup/login/logout) | Implemented and used |
+| Auth (login/logout; admin-provisioned accounts) | Implemented; public signup disabled (Stage 4B1) |
 | Calculator + shared pricing engine | Implemented (`src/lib/pricing`) |
 | Financial Vitest suite | Implemented |
 | GP rule editor with gap/overlap UX | Implemented on `/gp-setup` |
 | User-configurable pricing policy UI | Implemented (`/settings`, Stage 3B) |
 | User-configurable serving sizes UI | Implemented (`/settings`, Stage 3C) |
-| Env-based configuration | Not implemented |
+| Env-based configuration | Implemented (`NEXT_PUBLIC_SUPABASE_*`, Stage 4B1) |
 | API layer | Not present (by design currently) |
 | Multi-tenant / org features | Not present |
 

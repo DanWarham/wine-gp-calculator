@@ -1,6 +1,24 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { getSupabaseBrowserConfig } from '@/lib/supabaseEnv'
 
-const supabaseUrl = 'https://jcylgbtifwpcjncnnfok.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpjeWxnYnRpZndwY2puY25uZm9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU4NTg3NDAsImV4cCI6MjA2MTQzNDc0MH0.ocDsO4p3ZXP-B8eqyIi4onC1RqeYMyY2q50y4xTlqHs'
+let browserClient: SupabaseClient | undefined
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+function getBrowserClient(): SupabaseClient {
+  if (!browserClient) {
+    const { url, anonKey } = getSupabaseBrowserConfig()
+    browserClient = createClient(url, anonKey)
+  }
+  return browserClient
+}
+
+/**
+ * Lazily initialised browser client. Missing env fails on first use with a
+ * clear configuration error (no hardcoded fallback).
+ */
+export const supabase: SupabaseClient = new Proxy({} as SupabaseClient, {
+  get(_target, property, receiver) {
+    const client = getBrowserClient()
+    const value = Reflect.get(client, property, receiver)
+    return typeof value === 'function' ? value.bind(client) : value
+  },
+})

@@ -228,10 +228,11 @@ Canonical TS type: `src/types/servingSizes.ts`. Defaults: `src/lib/servingSizeDe
 
 ### `auth.users` (Supabase-managed)
 
-Used indirectly via Auth APIs (`signUp`, `signInWithPassword`, `getSession`).  
-The app reads `session.user.id` (and signup/login email). It does **not** define this table.
+Used indirectly via Auth APIs (`signInWithPassword`, `getSession`, `signOut`).
+The app reads `session.user.id` (and login email). It does **not** define this table.
+Public self-registration is disabled; accounts are administrator-controlled.
 
-**Important mismatch:** `src/app/login/page.tsx` queries `supabase.from('users')`, which targets **`public.users`**. That table **does not exist** in the live database (only `auth.users`). Documented as a known defect in `AI_CONTEXT.md`.
+Login no longer queries `public.users` (Stage 4B1). Auth failures use a generic non-enumerating message.
 
 ---
 
