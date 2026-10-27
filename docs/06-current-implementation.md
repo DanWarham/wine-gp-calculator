@@ -20,7 +20,7 @@ Resolved from `package.json` / `package-lock.json` (verified Stage 4B3, 2026-10-
 | Language | TypeScript | `5.8.3` (`strict: true`) |
 | Styling | Tailwind CSS | `4.1.4` (via `@tailwindcss/postcss`) |
 | Components | shadcn “new-york” style + Radix Slot/Toggle | `components.json` |
-| Dialogs | `@headlessui/react` | used on GP setup gap modal |
+| Dialogs | `@headlessui/react` | used on rule-editor gap modal |
 | Backend / Auth / DB | Supabase | `@supabase/supabase-js` `^2.118.0` (resolved `2.118.0`) |
 
 Other dependencies exist (e.g. `lucide-react`, `class-variance-authority`); they are not architectural drivers.
@@ -41,7 +41,12 @@ Browser (React client pages)
     │  @supabase/supabase-js
     ▼
 Supabase Auth + Postgres
-  (public.gp_settings, public.pricing_policy, public.serving_sizes, auth.users)
+  (public.pricing_configurations [runtime],
+   public.pricing_configuration_snapshots,
+   public.pricing_current_events,
+   public.serving_sizes,
+   legacy public.gp_settings + public.pricing_policy [reference only],
+   auth.users)
 ```
 
 ---
@@ -52,13 +57,13 @@ Supabase Auth + Postgres
 |------|---------|-------|
 | `/welcome` | Public entry (Login) | Public self-registration removed (Stage 4B1) |
 | `/login` | Email/password sign-in | Generic non-enumerating failure messages |
-| `/` | Wine price calculator | Loads persisted rules, pricing policy, and serving sizes |
-| `/gp-setup` | Pricing Rules editor | GP bands; separate from Settings |
-| `/settings` | Pricing Policy + Serving Sizes | VAT/BTG/rounding; per-category pour sizes |
+| `/` | Wine price calculator | Always loads **Current** Pricing Configuration + Serving Sizes |
+| `/pricing-configurations` | Pricing Configurations master/detail | GP Rules + Pricing Policy per named configuration |
+| `/settings` | Serving Sizes only | Pricing Policy moved into configurations |
 
-`/signup` is intentionally unsupported (404). New accounts are administrator-controlled via Supabase Auth admin/manual provisioning.
+`/signup` and `/gp-setup` are unsupported (404). New accounts are administrator-controlled via Supabase Auth admin/manual provisioning.
 
-Navigation on Calculator, Pricing Rules, and Settings names those three destinations and marks the current one. `/gp-setup/custom` has been removed; that URL is a normal 404.
+Navigation: Calculator · Pricing Configurations · Settings (`AppNav`).
 
 Auth protection is per-page `supabase.auth.getSession()` only.
 
@@ -112,9 +117,9 @@ sellingPriceIncVat =
 (1 - gp / 100)
 ```
 
-### Pricing policy (persisted; Stage 3B)
+### Pricing Configurations (persisted; Stage 5)
 
-Defaults (DB column defaults + `DEFAULT_PRICING_POLICY` for tests/provisioning semantics):
+A **Pricing Configuration** combines GP Rules + Pricing Policy (Serving Sizes remain separate).
 
 | Field | Default | Stored as |
 |-------|---------|-----------|
@@ -123,10 +128,15 @@ Defaults (DB column defaults + `DEFAULT_PRICING_POLICY` for tests/provisioning s
 | Bottle rounding | £1.00 | `bottle_rounding_increment` `1.00` |
 | Pour/glass rounding | £0.50 | `pour_rounding_increment` `0.50` |
 
-- Table: `public.pricing_policy` (one row per user; FK to `auth.users`).
-- Settings UI: `/settings` (separate from Pricing Rules `/gp-setup`).
-- Persistence helper: `src/lib/pricingPolicyStore.ts` (`getOrCreatePricingPolicy` / `savePricingPolicy`).
-- Calculator loads policy after auth and passes it into `priceWithGp`; does **not** use `DEFAULT_PRICING_POLICY` as operational user policy.
+- Runtime table: `public.pricing_configurations` (many per user; exactly one `is_current`).
+- Migrated legacy Current → named **Main Pricing** (`is_current = true`).
+- UI: `/pricing-configurations` master/detail (create from Current / another / blank; archive/restore; Make Current).
+- Persistence: `src/lib/pricingConfigurationStore.ts`.
+- Calculator always loads Current only (no configuration picker).
+- Saving edits does **not** create snapshots. Snapshots are created/reused on Make Current (and future Pricing Review / Scenario).
+- Immutable snapshots: `public.pricing_configuration_snapshots` (deduped by `source_configuration_id + content_hash`).
+- Promotion history: `public.pricing_current_events` (factual Make Current events; not effective-dating).
+- Legacy `gp_settings` / `pricing_policy` remain in the database as migration reference only — **no active application reads/writes**.
 - Pure engine in `src/lib/pricing/` unchanged in responsibility.
 
 ### BTG, scaling, rounding
@@ -141,11 +151,12 @@ Bottle sizes: 375 / 750 / 1500 / custom positive ml. **Invalid custom volume fai
 
 Pour catalogues are persisted per user in `serving_sizes` (Stage 3C). Provisioning defaults: Dry 125/175/250/500, Sparkling 125/150, Sweet / Fortified 75. Bottle is not a serving-size row. The calculator reads persisted rows only. An empty or fully disabled category shows the bottle line and states that no serving sizes are enabled. It does not invent pour rows.
 
-### Remaining gaps after Stage 3D
+### Remaining gaps after Stage 5
 
-- Pricing configuration versioning
+- Pricing Review / Scenario Modelling / sales uploads (consume snapshots later)
+- User-facing snapshot manager (not required; snapshots are infrastructure)
 - User-defined wine categories (explicitly deferred)
-- Pricing Rules keeps editor-only overlap messaging and gap assistance on `/gp-setup`. Final structural validity is `validateRuleSetForPricing`.
+- Rule editor keeps overlap messaging and gap assistance. Final structural validity is `validateRuleSetForPricing`.
 
 ---
 
@@ -165,11 +176,11 @@ Canonical TypeScript: `src/types/rules.ts`. No DB-level JSON schema validation.
 ### Validation / gaps / overlaps
 
 - Active pages import `Rule` from `src/types/rules.ts`.
-- Editor overlap check on `/gp-setup` blocks intersecting ranges (touching edges are allowed) and explains the clash.
+- Editor overlap check in `RuleSetEditor` blocks intersecting ranges (touching edges are allowed) and explains the clash.
 - Gap analysis can offer to insert missing `between` rules. Contiguity is a UI convention; the database does not enforce it.
 - Save then calls `validateRuleSetForPricing`. That is the only final structural check.
 - Rule field forms are `src/components/rules/{AllGp,LessThan,GreaterThan,Between}RuleForm.tsx`.
-- Calculator, Pricing Rules, and Settings distinguish loading, a loaded configuration, a valid empty serving-size list, and a configuration load error. Load failures do not substitute default policy, hardcoded pour sizes, or a fallback GP.
+- Calculator, Pricing Configurations, and Settings distinguish loading, a loaded configuration, a valid empty serving-size list, and a configuration load error. Load failures do not substitute default policy, hardcoded pour sizes, or a fallback GP.
 
 ---
 
@@ -182,40 +193,15 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | Entity | Role |
 |--------|------|
 | `auth.users` | Supabase Auth identities |
-| `public.gp_settings` | One JSONB GP rule document per user |
-| `public.pricing_policy` | One commercial pricing-policy row per user |
+| `public.pricing_configurations` | Editable Pricing Configurations (rules + policy); one Current per user |
+| `public.pricing_configuration_snapshots` | Immutable configuration snapshots (deduped) |
+| `public.pricing_current_events` | Make Current promotion history |
 | `public.serving_sizes` | User pour/carafe sizes within fixed categories |
+| `public.gp_settings` / `public.pricing_policy` | Legacy reference only (not used by app) |
 
-**No** sales, scenario, import, or pricing-version tables. Categories are not user-configurable.
+**No** sales, scenario, or import tables. Categories are not user-configurable. See [`DATA_MODEL.md`](./DATA_MODEL.md) for field-level detail.
 
-### `public.gp_settings`
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `uuid` PK | `gen_random_uuid()` |
-| `user_id` | `uuid` UNIQUE NOT NULL | FK → `auth.users` ON DELETE CASCADE (Stage 4B2) |
-| `rules` | `jsonb` nullable | Rule array |
-| `created_at` | `timestamp` | Default `now()` |
-
-- **RLS:** enabled; policy `"Policy with security definer functions"` allows ALL where `auth.uid() = user_id` (USING + WITH CHECK). Legacy name retained; no security-definer function exists.
-- **Grants (Stage 4B2):** `authenticated` SELECT/INSERT/UPDATE only; `anon` none.
-
-### `public.pricing_policy` (Stage 3B)
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | `uuid` PK | |
-| `user_id` | `uuid` UNIQUE | FK → `auth.users` ON DELETE CASCADE |
-| `vat_rate` | `numeric` | Default `0.20` |
-| `btg_bottle_discount` | `numeric` | Default `0.05`; must be `< 1` |
-| `bottle_rounding_increment` | `numeric` | Default `1.00`; must be `> 0` |
-| `pour_rounding_increment` | `numeric` | Default `0.50`; must be `> 0` |
-| `created_at` / `updated_at` | `timestamptz` | |
-
-- **RLS:** select/insert/update own row for `authenticated` only.
-- **Grants (Stage 4B2):** `authenticated` SELECT/INSERT/UPDATE only; `anon` none.
-
-### `public.serving_sizes` (Stage 3C)
+### `public.serving_sizes` (unchanged)
 
 | Column | Notes |
 |--------|-------|
@@ -224,12 +210,10 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `enabled` / `display_order` | Calculator shows enabled rows in order |
 | `user_id` | FK → `auth.users` ON DELETE CASCADE |
 
-- **RLS:** select/insert/update/delete own rows for `authenticated`.
-- **Grants (Stage 4B2):** `authenticated` SELECT/INSERT/UPDATE/DELETE; `anon` none.
-- **Provisioning:** seeded for existing users in migration; future users seeded only on first Pricing Policy creation.
+- **Provisioning:** future users seeded only on first Current Pricing Configuration creation.
 - **Helpers:** `src/lib/servingSizeStore.ts`, defaults in `src/lib/servingSizeDefaults.ts`.
 
-**Migrations applied:** `20261019134900`, `20261019223922`, `20261022104800`, `20261026194756_harden_database_access` (Stage 4B2 FK + grants + postgres default-privilege hardening).
+**Migrations applied through Stage 5:** `20261019134900` … `20261027093617`.
 
 Row counts are volatile point-in-time observations and are not architectural facts.
 
@@ -279,7 +263,7 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 
 | Area | Reality |
 |------|---------|
-| Automated tests | **Vitest**: pricing domain, pricing-policy store helpers, serving-size helpers, wine-category mapping |
+| Automated tests | **Vitest**: pricing domain, pricing-configuration store helpers, serving-size helpers, wine-category mapping |
 | Scripts | `dev`, `build`, `start`, `lint`, `test`, `test:watch` |
 | Manual validation | Still expected for calculator UX smoke (auth, rule setup, BTG display) |
 
@@ -288,7 +272,7 @@ Assumption: production is a Next.js host (often Vercel) plus hosted Supabase —
 ## Database Development Workflow
 
 - Source-controlled Supabase migrations exist under `supabase/migrations/`.
-- Stages 3A–3C established tables; Stage 4B2 hardened `gp_settings` FK, grants, and `postgres` default privileges.
+- Stages 3A–3C established legacy tables; Stage 4B2 hardened grants; Stage 5 added Pricing Configurations + snapshots + current-events.
 - Future application schema changes are **migration-first** with **explicit grants + RLS** (see [`DEVELOPMENT.md`](./DEVELOPMENT.md)).
 - Authority: migrations = intended/applied evolution; live Supabase = deployed state; this doc / `DATA_MODEL.md` = human-readable.
 - Dashboard-only schema edits should not be normal practice; reconcile any emergency manual changes into migrations.
@@ -297,7 +281,7 @@ Local Docker is not required merely to author or review migrations.
 
 ---
 
-## Security State (after Phase 0 + Stage 4B1–4B3)
+## Security State (after Phase 0 + Stage 4B1–4B3 + Stage 5)
 
 | Item | Status |
 |------|--------|
@@ -307,6 +291,7 @@ Local Docker is not required merely to author or review migrations.
 | Node runtime | **Node 22 LTS** required (Stage 4B3 amendment); Node 20 unsupported by supabase-js 2.110+ |
 | Env-based client config + closed signup (Stage 4B1) | **Done** |
 | `gp_settings` FK + grant/default-privilege hardening (Stage 4B2) | **Done** |
+| Pricing Configurations RLS/grants + controlled RPCs (Stage 5) | **Done** |
 | Selective dependency remediation (Stage 4B3) | **Done** — targeted runtime update only; no `npm audit fix --force` |
 | Residual `npm audit` findings | Accepted where development-only or Next-controlled transitive (see below) |
 | Import trust boundary for commercial sales | Later stage |
@@ -345,16 +330,17 @@ Prioritised for orientation (not exhaustive assessment dump):
 |------------|--------|
 | Auth (login / logout; admin-provisioned accounts) | **Implemented** (public signup disabled) |
 | Individual wine calculator | **Implemented** (uses shared engine) |
-| Pricing rule editing + GP persistence | **Implemented** |
+| Pricing Configurations (rules + policy, alternatives, archive) | **Implemented** (`/pricing-configurations`) |
+| Current status + Make Current + promotion history | **Implemented** |
+| Immutable configuration snapshots (capture/reuse) | **Implemented** (infrastructure; no user manager UI) |
 | Shared deterministic pricing engine | **Implemented** (`src/lib/pricing`) |
+| Calculator always uses Current | **Implemented** |
 | 750ml reference-cost rule matching | **Implemented** |
 | Full-precision GP through final rounding | **Implemented** |
 | Explicit failure on uncovered rules | **Implemented** |
 | Automated financial tests | **Implemented** (Vitest) |
-| Explicit pricing-policy type + defaults | **Implemented** |
-| User-configurable pricing policy UI + persistence | **Implemented** (`/settings`, `pricing_policy`) |
-| User-configurable serving sizes | **Implemented** (`serving_sizes`, Settings) |
-| Pricing rule/policy versioning | **Not implemented** |
+| User-configurable serving sizes | **Implemented** (`serving_sizes`, Settings only) |
+| Pricing Review | **Not implemented** |
 | Sales import | **Not implemented** |
 | Canonical sales model | **Not implemented** |
 | Scenario analysis | **Not implemented** |

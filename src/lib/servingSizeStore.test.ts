@@ -151,7 +151,7 @@ describe('ordering and filtering helpers', () => {
 describe('provisioning invariants (documented behaviour)', () => {
   it('treats an empty serving list as a valid configured state (no auto-fallback sizes)', () => {
     // listServingSizes returns whatever is persisted — including [].
-    // seedDefaultServingSizes is only invoked from first-time Pricing Policy creation,
+    // seedDefaultServingSizes is only invoked from first-time Current Pricing Configuration creation,
     // never merely because the serving list is empty.
     expect(servingSizesForCalculator([], 'dry')).toEqual([])
     expect(servingSizesForCalculator([], 'sparkling')).toEqual([])

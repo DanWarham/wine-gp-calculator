@@ -2,7 +2,7 @@
 
 Detailed product and domain orientation for AI coding assistants and engineers working on this repository.
 
-**Last reviewed against codebase:** 2026-10-22  
+**Last reviewed against codebase:** 2026-10-27 (Stage 5)  
 **Scope:** Documentation only. Do not treat this file as executable specification if it drifts from source — prefer the referenced source files.
 
 **Documentation authority:**
@@ -25,7 +25,7 @@ Users define **pricing rules** that map cost-price bands to GP targets (fixed or
 2. Optionally lets the user nudge GP ±1%.
 3. Outputs rounded selling prices for bottle and (when relevant) pour sizes by wine type.
 
-There is **no wine catalogue / inventory product database** in this app. Each calculation is ephemeral. The user’s GP rules, pricing policy, and serving sizes are persisted.
+There is **no wine catalogue / inventory product database** in this app. Each calculation is ephemeral. The user’s Pricing Configurations (GP rules + pricing policy) and serving sizes are persisted.
 
 ---
 
@@ -36,10 +36,10 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 **Typical workflow (from code):**
 
 1. Land on `/welcome` → Login (`/login`). Public self-registration is disabled; accounts are administrator-controlled.
-2. After auth, land on `/` (calculator). If no rules exist in `gp_settings`, a modal forces navigation to `/gp-setup`.
-3. On `/gp-setup`, create either a **Universal GP** rule or a **Custom Rule Set** (less-than / between / greater-than bands).
+2. After auth, land on `/` (calculator). Calculator always uses **Current Pricing**. If Current has no GP rules, a modal directs to `/pricing-configurations`.
+3. On `/pricing-configurations`, edit Current (default **Main Pricing**) or create alternatives (from Current / another / blank). Pricing Policy is edited here, not in Settings.
 4. Return to `/`, enter cost (ex VAT), wine type, bottle size, bottle vs by-the-glass, review suggested prices.
-5. Optionally open **Pricing Rules** (`/gp-setup`) or **Settings** (`/settings`), or logout.
+5. Optionally open **Pricing Configurations** or **Settings** (Serving Sizes), or logout.
 
 ---
 
@@ -51,21 +51,23 @@ There is **no wine catalogue / inventory product database** in this app. Each ca
 | **Gross Profit** | Not shown as a £ amount; only GP % is used. | UI shows % only |
 | **Cost price** | Purchase cost **excluding VAT**. Label: “Cost Price (ex VAT)”. | `src/app/page.tsx` |
 | **Selling price** | Customer-facing price in £, derived from cost + VAT treatment + GP. | `src/lib/pricing` |
-| **VAT / tax** | User policy `vatRate` (default `0.2` = 20%). Applied inside the selling-price formula. | `pricing_policy` / Settings |
+| **VAT / tax** | Configuration policy `vatRate` (default `0.2` = 20%). Applied inside the selling-price formula. | Pricing Configuration |
 | **Wine type** | `Dry`, `Sparkling`, or `Sweet` (label: “Sweet / Fortified”). Maps to fixed serving-size categories `dry`, `sparkling`, `sweet_fortified`. | `wineCategories.ts` / `servingSizes.ts` |
 | **Bottle pricing** | Price for a full bottle (Half 375ml / Bottle 750ml / Magnum 1500ml / Other custom ml). Rounded with the persisted bottle increment. | Home page + pricing domain |
 | **Glass / pour pricing** | Enabled persisted servings when “Selling By the Glass”. Rounded with the persisted pour increment. | Home page + `serving_sizes` |
 | **Pour sizes** | User-configured per category (defaults: Dry 125/175/250/500; Sparkling 125/150; Sweet 75). Bottle is separate. | `serving_sizes` / Settings |
-| **BTG (By The Glass)** | Toggle `isBTG`. When true, shows pour rows and applies the user’s BTG bottle discount (default 5%) to the bottle line only. | Home page + Settings |
+| **BTG (By The Glass)** | Toggle `isBTG`. When true, shows pour rows and applies the configuration’s BTG bottle discount (default 5%) to the bottle line only. | Home page + Pricing Configuration |
+| **Pricing Configuration** | Named editable bundle of GP Rules + Pricing Policy. Exactly one is **Current**. | `pricing_configurations` |
 | **Pricing rules** | JSON rules mapping cost bands → GP %. Types: `all_gp`, `less_than`, `between`, `greater_than`. | `src/types/rules.ts` |
-| **Universal GP** | Single `all_gp` rule: one GP for all costs. | Setup UI |
-| **Custom rule set** | Contiguous cost bands: typically one `less_than`, zero+ `between`, one `greater_than`. Gaps/overlaps are validated. | `src/app/gp-setup/page.tsx` |
+| **Snapshot** | Immutable capture of a configuration for reproducibility; reused when identical; created on Make Current (and future Review/Scenario). | `pricing_configuration_snapshots` |
+| **Universal GP** | Single `all_gp` rule: one GP for all costs. | Pricing Configurations UI |
+| **Custom rule set** | Contiguous cost bands: typically one `less_than`, zero+ `between`, one `greater_than`. Gaps/overlaps are validated. | `RuleSetEditor` |
 
 ### Assumptions (not proven by code)
 
-- Users are primarily **UK** venues (default 20% VAT and £ display). Pricing policy is user-configurable via `/settings` (Stage 3B).
+- Users are primarily **UK** venues (default 20% VAT and £ display). Pricing policy is per Pricing Configuration (Stage 5).
 - “GP” here is the hospitality trade meaning: margin as a percentage of **selling price**, rearranged into the formula below — not markup-on-cost.
-- The BTG bottle discount is a commercial convention (bottle cheaper than equivalent glass pours); default 5%, configurable in Settings.
+- The BTG bottle discount is a commercial convention (bottle cheaper than equivalent glass pours); default 5%, configurable per configuration.
 
 ---
 

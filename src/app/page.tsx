@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { supabase } from "@/lib/supabaseClient"
+import { AppNav } from "@/components/AppNav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -16,8 +16,9 @@ import {
   resolveTargetGp,
   type PricingPolicy,
 } from '@/lib/pricing'
-import { getOrCreatePricingPolicy } from '@/lib/pricingPolicyStore'
+import { getOrCreateCurrentPricingConfiguration } from '@/lib/pricingConfigurationStore'
 import { listServingSizes, servingSizesForCalculator } from '@/lib/servingSizeStore'
+import { supabase } from '@/lib/supabaseClient'
 import { WINE_TYPE_OPTIONS, wineTypeToCategory, type WineTypeValue } from '@/lib/wineCategories'
 
 /** Display-only GP formatting. Does not alter the value passed into pricing. */
@@ -53,7 +54,7 @@ export default function Page() {
   const [rules, setRules] = useState<Rule[]>([])
   const [rulesError, setRulesError] = useState<string | null>(null)
   const [pricingPolicy, setPricingPolicy] = useState<PricingPolicy | null>(null)
-  const [policyError, setPolicyError] = useState<string | null>(null)
+  const [configError, setConfigError] = useState<string | null>(null)
   const [servingSizes, setServingSizes] = useState<ServingSize[] | null>(null)
   const [servingSizesError, setServingSizesError] = useState<string | null>(null)
   const [loadingSession, setLoadingSession] = useState(true)
@@ -90,13 +91,24 @@ export default function Page() {
 
       const user = session.user
 
-      const policyResult = await getOrCreatePricingPolicy(user.id)
-      if (!policyResult.ok) {
-        setPolicyError(policyResult.error)
+      const configResult = await getOrCreateCurrentPricingConfiguration(user.id)
+      if (!configResult.ok) {
+        setConfigError(configResult.error)
         setPricingPolicy(null)
+        setRules([])
+        setShowSetupModal(false)
       } else {
-        setPolicyError(null)
-        setPricingPolicy(policyResult.policy)
+        setConfigError(null)
+        setPricingPolicy(configResult.data.pricingPolicy)
+        if (!configResult.data.rules || configResult.data.rules.length === 0) {
+          setRulesError(null)
+          setRules([])
+          setShowSetupModal(true)
+        } else {
+          setRulesError(null)
+          setRules(configResult.data.rules)
+          setShowSetupModal(false)
+        }
       }
 
       const servingsResult = await listServingSizes(user.id)
@@ -106,27 +118,6 @@ export default function Page() {
       } else {
         setServingSizesError(null)
         setServingSizes(servingsResult.data)
-      }
-
-      const { data, error } = await supabase
-        .from('gp_settings')
-        .select('*')
-        .eq('user_id', user.id)
-        .single()
-
-      // .single() reports PGRST116 when the user has no gp_settings row yet.
-      if (error && error.code !== 'PGRST116') {
-        setRulesError(error.message || 'Pricing rules could not be loaded. Prices cannot be calculated.')
-        setRules([])
-        setShowSetupModal(false)
-      } else if (!data?.rules || data.rules.length === 0) {
-        setRulesError(null)
-        setRules([])
-        setShowSetupModal(true)
-      } else {
-        setRulesError(null)
-        setRules(data.rules)
-        setShowSetupModal(false)
       }
 
       setLoadingSession(false)
@@ -184,11 +175,6 @@ export default function Page() {
     })
   }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push("/welcome")
-  }
-
   if (loadingSession) {
     return (
       <main className="p-4 md:p-8 max-w-2xl mx-auto">
@@ -197,27 +183,13 @@ export default function Page() {
     )
   }
 
-  if (policyError || !pricingPolicy) {
+  if (configError || !pricingPolicy) {
     return (
       <main className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
         <p className="text-red-600">
-          {policyError ?? 'Pricing policy is not available. Prices cannot be calculated.'}
+          {configError ?? 'Current Pricing is not available. Prices cannot be calculated.'}
         </p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => router.push('/gp-setup')}>
-            Pricing Rules
-          </Button>
-          <Button variant="outline" onClick={() => router.push('/settings')}>
-            Settings
-          </Button>
-          <Button
-            onClick={handleLogout}
-            variant="outline"
-            className="text-red-600 border-red-400 hover:bg-red-50"
-          >
-            Logout
-          </Button>
-        </div>
+        <AppNav active="calculator" />
       </main>
     )
   }
@@ -228,21 +200,7 @@ export default function Page() {
         <p className="text-red-600">
           {servingSizesError ?? 'Serving sizes could not be loaded. Pour prices are unavailable.'}
         </p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => router.push('/gp-setup')}>
-            Pricing Rules
-          </Button>
-          <Button variant="outline" onClick={() => router.push('/settings')}>
-            Settings
-          </Button>
-          <Button
-            onClick={handleLogout}
-            variant="outline"
-            className="text-red-600 border-red-400 hover:bg-red-50"
-          >
-            Logout
-          </Button>
-        </div>
+        <AppNav active="calculator" />
       </main>
     )
   }
@@ -251,55 +209,15 @@ export default function Page() {
     return (
       <main className="p-4 md:p-8 max-w-2xl mx-auto space-y-4">
         <p className="text-red-600">{rulesError}</p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => router.push('/gp-setup')}>
-            Pricing Rules
-          </Button>
-          <Button variant="outline" onClick={() => router.push('/settings')}>
-            Settings
-          </Button>
-          <Button
-            onClick={handleLogout}
-            variant="outline"
-            className="text-red-600 border-red-400 hover:bg-red-50"
-          >
-            Logout
-          </Button>
-        </div>
+        <AppNav active="calculator" />
       </main>
     )
   }
 
   return (
     <main className="p-4 md:p-8 max-w-2xl mx-auto">
-      <div className="flex flex-wrap gap-2 justify-between mb-4">
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" disabled>
-            Calculator
-          </Button>
-          <Button
-            onClick={() => router.push('/gp-setup')}
-            variant="outline"
-            className="border-blue-400 text-blue-600 hover:bg-blue-50"
-          >
-            Pricing Rules
-          </Button>
-          <Button
-            onClick={() => router.push('/settings')}
-            variant="outline"
-            className="border-blue-400 text-blue-600 hover:bg-blue-50"
-          >
-            Settings
-          </Button>
-        </div>
-
-        <Button
-          onClick={handleLogout}
-          variant="outline"
-          className="text-red-600 border-red-400 hover:bg-red-50"
-        >
-          Logout
-        </Button>
+      <div className="mb-4">
+        <AppNav active="calculator" />
       </div>
 
       <Card className="shadow-md">
@@ -472,11 +390,16 @@ export default function Page() {
 
       {showSetupModal && (
         <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center">
-          <div className="bg-white rounded-lg p-6 space-y-4 shadow-lg">
-            <h2 className="text-xl font-bold text-gray-900">No GP Rules Found</h2>
-            <p className="text-gray-700">You must create a rule set to continue.</p>
+          <div className="bg-white rounded-lg p-6 space-y-4 shadow-lg max-w-md">
+            <h2 className="text-xl font-bold text-gray-900">Current Pricing needs GP rules</h2>
+            <p className="text-gray-700">
+              Your Current Pricing configuration has no GP rules yet. Open Pricing Configurations to
+              add rules before calculating prices.
+            </p>
             <div className="flex justify-end gap-4 pt-4">
-              <Button onClick={() => router.push("/gp-setup")}>Create Rules</Button>
+              <Button onClick={() => router.push("/pricing-configurations")}>
+                Pricing Configurations
+              </Button>
             </div>
           </div>
         </div>

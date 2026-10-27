@@ -104,10 +104,12 @@ If migrations and live state disagree, investigate the drift before changing eit
 | Live schema change in 3A | **None** — baseline describes reality; it must not be re-executed against the existing live DB |
 | Remote history | Baseline `20261019134900` marked applied via `migration repair`; Stage 3B `20261019223922_create_pricing_policy` applied with `db push`. |
 
-Application schema expectations (current):
+Application schema expectations (current, Stage 5):
 
-- Table `public.gp_settings` with `id`, `user_id` (unique + FK → `auth.users` ON DELETE CASCADE), `rules` (jsonb), `created_at`
-- RLS: `auth.uid() = user_id` (legacy policy name preserved)
+- Runtime: `pricing_configurations`, `pricing_configuration_snapshots`, `pricing_current_events`, `serving_sizes`
+- Legacy reference (unused by app): `gp_settings`, `pricing_policy`
+- RLS: `auth.uid() = user_id`; clients cannot set `user_id` / `is_current` on configurations
+- Controlled RPCs for ensure-Current, snapshot capture, Make Current
 - Supabase Auth enabled for email/password; public signup disabled (Stage 4B1)
 - Stage 4B2 tightened grants and `postgres` default privileges (see below)
 
@@ -161,7 +163,7 @@ Requires Supabase CLI auth (`npx supabase login` or `SUPABASE_ACCESS_TOKEN`). Li
 
 ### Stage 3B / 3C provisioning notes
 
-`pricing_policy` is owned per user. New authenticated users are provisioned by `getOrCreatePricingPolicy` in `src/lib/pricingPolicyStore.ts` (no `auth.users` trigger). Existing users were seeded in the Stage 3B migration with the commercial defaults (VAT 20%, BTG 5%, bottle £1, pour £0.50).
+Pricing Configurations are owned per user. New authenticated users are provisioned by `getOrCreateCurrentPricingConfiguration` → RPC `ensure_current_pricing_configuration` (Main Pricing Current, empty rules, default policy). First-use also seeds Serving Sizes. Existing users were migrated from `gp_settings` + `pricing_policy` into **Main Pricing** in Stage 5 (exact parity; no initial snapshot/event).
 
 `serving_sizes` rows are seeded for existing users in Stage 3C migration `20261022104800`. For **future** users, default serving sizes are inserted only when Pricing Policy is first created (same helper). An intentionally empty serving-size configuration is never silently reseeded just because the table is empty.
 
