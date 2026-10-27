@@ -227,11 +227,11 @@ Beyond the current Next.js / Supabase environment, no specific additional server
 ```text
 User Interfaces
     │
-    ├── Calculator
-    ├── Pricing Rule Management
-    ├── Pricing Policy / Serving Sizes
-    ├── Sales Import
-    └── Scenario Analysis
+    ├── Calculator (always uses Current Pricing)
+    ├── Pricing Configurations (rules + policy; alternatives; archive)
+    ├── Serving Sizes (Settings)
+    ├── Sales Import / Pricing Review   [future]
+    └── Scenario Analysis               [future]
              │
              ▼
 Deterministic Pricing Domain
@@ -248,11 +248,12 @@ Application / Analysis Workflows
              ▼
 Persistent Data
     ├── Users / ownership
-    ├── Current pricing rules
-    ├── Current pricing policy / serving sizes
-    ├── Immutable pricing snapshots
-    ├── Imports / canonical sales
-    └── Scenario definitions
+    ├── Pricing Configurations (editable; one Current per user)
+    ├── Serving sizes (separate from configurations)
+    ├── Immutable configuration snapshots (reuse on identical capture)
+    ├── Current-pricing promotion history
+    ├── Imports / canonical sales          [future]
+    └── Scenario definitions               [future]
 ```
 
 No speculative microservices or unnecessary layers.

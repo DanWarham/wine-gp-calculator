@@ -94,8 +94,8 @@ function normalizeLabel(label: string): string {
 /**
  * Insert product-default serving sizes for a user.
  * Conflict-safe: does not overwrite or duplicate existing labels.
- * Intended only for first-use provisioning alongside Pricing Policy creation —
- * do not call merely because serving_sizes is empty.
+ * Intended only for first-use provisioning alongside Current Pricing Configuration
+ * creation — do not call merely because serving_sizes is empty.
  */
 export async function seedDefaultServingSizes(userId: string): Promise<ServingSizeResult<void>> {
   const rows = DEFAULT_SERVING_SIZE_DEFINITIONS.map((d) => ({
