@@ -107,7 +107,7 @@ If migrations and live state disagree, investigate the drift before changing eit
 Application schema expectations (current, Stage 5):
 
 - Runtime: `pricing_configurations`, `pricing_configuration_snapshots`, `pricing_current_events`, `serving_sizes`
-- Legacy reference (unused by app): `gp_settings`, `pricing_policy`
+- Legacy `gp_settings` / `pricing_policy` dropped after Stage 5A
 - RLS: `auth.uid() = user_id`; clients cannot set `user_id` / `is_current` on configurations
 - Controlled RPCs for ensure-Current, snapshot capture, Make Current
 - Supabase Auth enabled for email/password; public signup disabled (Stage 4B1)

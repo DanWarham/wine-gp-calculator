@@ -7,7 +7,7 @@ import {
   validatePricingPolicy,
   type PricingPolicy,
 } from '@/lib/pricing'
-import { percentToRate, rateToPercent, rowToPricingPolicy } from '@/lib/pricingPolicyStore'
+import { percentToRate, rateToPercent, rowToPricingPolicy } from '@/lib/pricingConfigurationStore'
 
 describe('percent ↔ rate conversion', () => {
   it('maps common UI percentages to domain rates', () => {

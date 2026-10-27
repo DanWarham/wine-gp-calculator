@@ -41,11 +41,10 @@ Browser (React client pages)
     │  @supabase/supabase-js
     ▼
 Supabase Auth + Postgres
-  (public.pricing_configurations [runtime],
+  (public.pricing_configurations,
    public.pricing_configuration_snapshots,
    public.pricing_current_events,
    public.serving_sizes,
-   legacy public.gp_settings + public.pricing_policy [reference only],
    auth.users)
 ```
 
@@ -136,7 +135,7 @@ A **Pricing Configuration** combines GP Rules + Pricing Policy (Serving Sizes re
 - Saving edits does **not** create snapshots. Snapshots are created/reused on Make Current (and future Pricing Review / Scenario).
 - Immutable snapshots: `public.pricing_configuration_snapshots` (deduped by `source_configuration_id + content_hash`).
 - Promotion history: `public.pricing_current_events` (factual Make Current events; not effective-dating).
-- Legacy `gp_settings` / `pricing_policy` remain in the database as migration reference only — **no active application reads/writes**.
+- Legacy `gp_settings` / `pricing_policy` have been **dropped** after Stage 5A acceptance.
 - Pure engine in `src/lib/pricing/` unchanged in responsibility.
 
 ### BTG, scaling, rounding
@@ -197,8 +196,6 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `public.pricing_configuration_snapshots` | Immutable configuration snapshots (deduped) |
 | `public.pricing_current_events` | Make Current promotion history |
 | `public.serving_sizes` | User pour/carafe sizes within fixed categories |
-| `public.gp_settings` / `public.pricing_policy` | Legacy reference only (not used by app) |
-
 **No** sales, scenario, or import tables. Categories are not user-configurable. See [`DATA_MODEL.md`](./DATA_MODEL.md) for field-level detail.
 
 ### `public.serving_sizes` (unchanged)
@@ -318,9 +315,8 @@ Prioritised for orientation (not exhaustive assessment dump):
 
 1. Persisted rule sets that historically relied on silent 70% gap behaviour surface explicit calculator errors until rules are fixed.
 2. Wine categories remain fixed (not user-configurable).
-3. Misleading legacy `gp_settings` policy name (semantics correct; rename deferred).
-4. Residual `supabase_admin` default ACL still auto-grants broad public-table rights if objects are created as that role (migrations use `postgres`; postgres defaults hardened).
-5. No Next middleware — protection remains per-page `getSession` (deferred).
+3. Residual `supabase_admin` default ACL still auto-grants broad public-table rights if objects are created as that role (migrations use `postgres`; postgres defaults hardened).
+4. No Next middleware — protection remains per-page `getSession` (deferred).
 
 ---
 

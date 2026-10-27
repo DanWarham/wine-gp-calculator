@@ -75,7 +75,7 @@ Persistence and auth are entirely **Supabase**:
 
 - Browser creates a singleton client in `src/lib/supabaseClient.ts` from `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` (`src/lib/supabaseEnv.ts`).
 - Missing required env vars fail clearly (no hardcoded fallback). Privileged credentials must never use `NEXT_PUBLIC_*`.
-- Data access uses the Supabase REST/Data API via `.from('pricing_configurations')`, `.from('serving_sizes')`, controlled RPCs, and Auth methods. Legacy `gp_settings` / `pricing_policy` are **not** used by the app after Stage 5 cutover.
+- Data access uses the Supabase REST/Data API via `.from('pricing_configurations')`, `.from('serving_sizes')`, controlled RPCs, and Auth methods. Legacy `gp_settings` / `pricing_policy` have been **dropped**.
 
 ### API structure
 
@@ -109,8 +109,8 @@ See [`DATA_MODEL.md`](./DATA_MODEL.md) for field-level detail.
 **Summary:**
 
 - Runtime tables: `public.pricing_configurations`, `public.pricing_configuration_snapshots`, `public.pricing_current_events`, `public.serving_sizes`.
-- Legacy reference tables (not used by app): `public.gp_settings`, `public.pricing_policy`.
 - Auth identities: `auth.users` (Supabase-managed).
+- Legacy `gp_settings` / `pricing_policy` removed after Stage 5 cutover.
 - RLS enabled: users may only access their own rows (`auth.uid() = user_id`).
 - Exactly one Current configuration per user (partial unique index on `is_current`).
 - Clients cannot set `user_id` / `is_current` (column privileges + defaults + RPCs).
@@ -159,7 +159,7 @@ sequenceDiagram
   participant L as /login
   participant S as Supabase Auth
   participant H as / (calculator)
-  participant DB as gp_settings
+  participant DB as pricing_configurations
 
   U->>W: Open app
   W->>L: Login
@@ -170,9 +170,9 @@ sequenceDiagram
   alt no session
     H->>W: redirect
   else session
-    H->>DB: select rules by user_id
+    H->>DB: ensure/load Current configuration
     alt missing / empty rules
-      H->>H: show setup modal → /gp-setup
+      H->>H: show setup modal → /pricing-configurations
     else rules present
       H->>H: enable calculator
     end
@@ -202,8 +202,8 @@ No payment, email-sending SDK, analytics, or wine data APIs appear in dependenci
 | Area | Pattern |
 |------|---------|
 | Login | Toast messages via `useToast`; `mapLoginError` for generic/network failures |
-| Calculator | Inline cost validation errors; missing rules → blocking modal |
-| GP setup | Inline `error` string; Headless UI dialog for gaps; `confirm()` for deletes |
+| Calculator | Inline cost validation errors; empty Current rules → blocking modal |
+| Pricing Configurations | Inline errors; Headless UI dialog for gaps; confirms for archive/Make Current |
 | Supabase errors | Often `.message` surfaced as text; some paths `console.error` |
 | Shared toast | Auto-dismiss after 3s |
 
@@ -261,7 +261,7 @@ flowchart LR
   ui --> cva["class-variance-authority"]
   ui --> radix["@radix-ui/*"]
   ui --> utils["lib/utils cn()"]
-  gpsetup["gp-setup page"] --> headless["@headlessui/react"]
+  pricingConfigs["pricing-configurations"] --> headless["@headlessui/react"]
 ```
 
 **Notable absences:** E2E test framework, ORM, form libraries, state libraries, env validation (`zod` + `t3-env`, etc.). Domain unit tests use Vitest.
@@ -272,10 +272,10 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  A[Enter cost ex VAT + options] --> B[Load rules from gp_settings]
+  A[Enter cost ex VAT + options] --> B[Load Current Pricing Configuration]
   B --> C[resolveTargetGp via 750ml reference cost]
   C --> D[User may nudge GP ±1%]
-  D --> E[priceWithGp using persisted pricing policy]
+  D --> E[priceWithGp using Current pricing policy]
   E --> F{BTG?}
   F -->|Yes| G[Bottle line discounted; pours undiscounted basis]
   F -->|No| H[Show bottle only]
@@ -284,14 +284,14 @@ flowchart TD
   I --> J[Display price table or explicit error]
 ```
 
-Rule persistence flow (setup):
+Configuration persistence flow:
 
 ```mermaid
 flowchart TD
-  E[Edit rules in UI] --> V[Overlap check]
+  E[Edit rules/policy on /pricing-configurations] --> V[Overlap check]
   V --> G[Gap analysis]
   G -->|gaps| M[Modal: add missing betweens]
-  G -->|ok| S[insert or update gp_settings]
+  G -->|ok| S[update pricing_configurations]
   M --> E
-  S --> H[Redirect to calculator]
+  S --> H[Stay on editor / return to calculator]
 ```

@@ -22,10 +22,11 @@ If migrations and live state disagree, **investigate the drift** — do not sile
 | `20261026194756_harden_database_access.sql` | FK + grant tightening (Stage 4B2) |
 | `20261027092540_create_pricing_configurations.sql` | Pricing Configurations, snapshots, current-events, RPCs, backfill (Stage 5) |
 | `20261027093617_revoke_anon_snapshot_hash_execute.sql` | Revoke anon EXECUTE on snapshot hash helper |
+| `20261027101302_drop_legacy_gp_settings_pricing_policy.sql` | Drop superseded `gp_settings` + `pricing_policy` |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md).
 
-Runtime application tables: `public.pricing_configurations`, `public.pricing_configuration_snapshots`, `public.pricing_current_events`, `public.serving_sizes` (plus `auth.users`). Legacy `gp_settings` / `pricing_policy` remain as migration reference only. Sales/scenario entities from `05` are **not** implemented.
+Runtime application tables: `public.pricing_configurations`, `public.pricing_configuration_snapshots`, `public.pricing_current_events`, `public.serving_sizes` (plus `auth.users`). Legacy `gp_settings` / `pricing_policy` have been **dropped**. Sales/scenario entities from `05` are **not** implemented.
 
 ---
 
@@ -76,8 +77,6 @@ Serving Sizes are **not** part of a Pricing Configuration and are **not** snapsh
 | `pricing_configuration_snapshots` | none | SELECT only |
 | `pricing_current_events` | none | SELECT only |
 | `serving_sizes` | none | SELECT, INSERT, UPDATE, DELETE |
-| Legacy `gp_settings` / `pricing_policy` | none | SELECT, INSERT, UPDATE (unused by app) |
-
 Controlled RPCs (EXECUTE for `authenticated` only; not anon):
 
 - `ensure_current_pricing_configuration()`
@@ -133,17 +132,6 @@ Records the factual event “this configuration became Current at this time”. 
 ## `public.serving_sizes`
 
 Unchanged from Stage 3C/4. Runtime pour/carafe catalogue per fixed category. Seeded on genuine first Pricing Configuration provisioning only — intentionally empty lists are never reseeded.
-
----
-
-## Legacy tables (reference only)
-
-| Table | Status after Stage 5 |
-|-------|----------------------|
-| `public.gp_settings` | Intact; **no active app reads/writes** |
-| `public.pricing_policy` | Intact; **no active app reads/writes** |
-
-Safe to drop only after an explicit cleanup review (see Stage 5 implementation report).
 
 ---
 
