@@ -24,10 +24,11 @@ If migrations and live state disagree, **investigate the drift** — do not sile
 | `20261027093617_revoke_anon_snapshot_hash_execute.sql` | Revoke anon EXECUTE on snapshot hash helper |
 | `20261027101302_drop_legacy_gp_settings_pricing_policy.sql` | Drop superseded `gp_settings` + `pricing_policy` |
 | `20261029144815_create_pricing_data_import.sql` | Pricing data import tables + commit/previous RPCs (Stage 6A) |
+| `20261029161358_create_pricing_reviews.sql` | Cost Change Review tables + commit/complete RPCs (Stage 6B) |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md).
 
-Runtime application tables: `public.pricing_configurations`, `public.pricing_configuration_snapshots`, `public.pricing_current_events`, `public.serving_sizes`, `public.pricing_items`, `public.pricing_data_imports`, `public.pricing_observations`, `public.pricing_import_issues` (plus `auth.users`). Legacy `gp_settings` / `pricing_policy` have been **dropped**. Sales/scenario entities from `05` remain **not** implemented.
+Runtime application tables: `public.pricing_configurations`, `public.pricing_configuration_snapshots`, `public.pricing_current_events`, `public.serving_sizes`, `public.pricing_items`, `public.pricing_data_imports`, `public.pricing_observations`, `public.pricing_import_issues`, `public.pricing_reviews`, `public.pricing_review_items` (plus `auth.users`). Legacy `gp_settings` / `pricing_policy` have been **dropped**. Sales/scenario entities from `05` remain **not** implemented.
 
 ---
 
@@ -47,6 +48,11 @@ erDiagram
   pricing_configurations ||--o{ pricing_configuration_snapshots : "source"
   pricing_configurations ||--o{ pricing_current_events : "previous/new"
   pricing_configuration_snapshots ||--o{ pricing_current_events : "previous/new snap"
+  auth_users ||--o{ pricing_reviews : "owns"
+  pricing_reviews ||--o{ pricing_review_items : "contains"
+  pricing_data_imports ||--o{ pricing_reviews : "current/previous"
+  pricing_configuration_snapshots ||--o{ pricing_reviews : "captured config"
+  pricing_items ||--o{ pricing_review_items : "reviewed as"
 
   pricing_configurations {
     uuid id PK
@@ -87,6 +93,8 @@ Serving Sizes are **not** part of a Pricing Configuration and are **not** snapsh
 | `pricing_data_imports` | none | SELECT only |
 | `pricing_observations` | none | SELECT only |
 | `pricing_import_issues` | none | SELECT only |
+| `pricing_reviews` | none | SELECT; column UPDATE (`tolerance_gp_points`, `updated_at`) on draft only |
+| `pricing_review_items` | none | SELECT; column UPDATE (decision fields / `system_status` / `updated_at`) on draft parent only |
 Controlled RPCs (EXECUTE for `authenticated` only; not anon):
 
 - `ensure_current_pricing_configuration()`
@@ -95,6 +103,8 @@ Controlled RPCs (EXECUTE for `authenticated` only; not anon):
 - `pricing_configuration_snapshot_content_hash(...)` (dedup helper)
 - `commit_pricing_data_import(jsonb)` (Stage 6A atomic import write)
 - `get_previous_completed_pricing_data_import(uuid)` (Stage 6B foundation)
+- `commit_cost_change_review(jsonb)` (Stage 6B draft create)
+- `complete_pricing_review(uuid)` (Stage 6B completion)
 
 ---
 
@@ -171,6 +181,22 @@ Writes are via SECURITY DEFINER `commit_pricing_data_import(jsonb)` only. Client
 
 ---
 
+## Pricing reviews (Stage 6B)
+
+Cost Change Reviews compare two completed pricing imports under a captured Current Pricing Configuration snapshot.
+
+### `public.pricing_reviews`
+
+One review event: `review_type = cost_change`, `current_import_id` / `previous_import_id`, snapshot FK, stored `tolerance_gp_points`, `status` ∈ `draft` | `completed`, and `presence_summary` JSONB for new/missing items. At most one draft per user+import pair.
+
+### `public.pricing_review_items`
+
+Per changed full-bottle row: previous/current cost, current Micros selling price, old/current/target GP, recommended price, system status, optional decision / proposed price / resulting GP, and previous unresolved-action flags. Historical values remain fixed after creation.
+
+Writes: draft create via `commit_cost_change_review(jsonb)`; completion via `complete_pricing_review(uuid)`; draft decision/tolerance updates via authenticated column UPDATE + RLS.
+
+---
+
 ## JSONB: `rules`
 
 Same canonical Rule model (`src/types/rules.ts`): `all_gp`, `less_than`, `between`, `greater_than`. Authoritative calculation validity: `validateRuleSetForPricing`. Blank `[]` is allowed for blank alternatives / new-user Main Pricing, but cannot be made Current or captured until non-empty and valid.
@@ -185,3 +211,4 @@ Same canonical Rule model (`src/types/rules.ts`): `all_gp`, `less_than`, `betwee
 | `PricingPolicy` | `src/lib/pricing/types.ts` |
 | `PricingConfiguration` | `src/types/pricingConfigurations.ts` |
 | `ServingSize` | `src/types/servingSizes.ts` |
+| Pricing Review / Cost Change | `src/types/pricingReviews.ts` |

@@ -19,6 +19,34 @@ export function rawBottleSellingPrice(
   return (actualCostExVat * (1 + vatRate)) / (1 - gp / 100)
 }
 
+/**
+ * Realised GP % from cost (ex VAT) and selling price (inc VAT).
+ * Inverse of {@link rawBottleSellingPrice}; returns null when inputs cannot yield a finite GP.
+ */
+export function gpFromCostAndSellingPrice(
+  actualCostExVat: number,
+  sellingPriceIncVat: number,
+  vatRate: number
+): number | null {
+  if (
+    !Number.isFinite(actualCostExVat) ||
+    actualCostExVat < 0 ||
+    !Number.isFinite(sellingPriceIncVat) ||
+    sellingPriceIncVat <= 0 ||
+    !Number.isFinite(vatRate) ||
+    vatRate < 0
+  ) {
+    return null
+  }
+
+  const sellingExVat = sellingPriceIncVat / (1 + vatRate)
+  if (!Number.isFinite(sellingExVat) || sellingExVat <= 0) return null
+
+  const gp = (1 - actualCostExVat / sellingExVat) * 100
+  if (!Number.isFinite(gp)) return null
+  return gp
+}
+
 function rawSaleFromBottleBase(
   rawBottlePrice: number,
   bottleSizeMl: number,

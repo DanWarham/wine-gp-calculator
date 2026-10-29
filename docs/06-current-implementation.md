@@ -59,11 +59,12 @@ Supabase Auth + Postgres
 | `/` | Wine price calculator | Always loads **Current** Pricing Configuration + Serving Sizes |
 | `/pricing-configurations` | Pricing Configurations master/detail | GP Rules + Pricing Policy per named configuration |
 | `/settings` | Serving Sizes only | Pricing Policy moved into configurations |
-| `/pricing-data` | Pricing source import (Stage 6A) | FnbShop + Micros → immutable snapshot; not Pricing Review |
+| `/pricing-data` | Pricing source import (Stage 6A) | FnbShop + Micros → immutable snapshot |
+| `/pricing-reviews` | Pricing Reviews (Stage 6B) | Cost Change Review list; detail at `/pricing-reviews/[id]` |
 
 `/signup` and `/gp-setup` are unsupported (404). New accounts are administrator-controlled via Supabase Auth admin/manual provisioning.
 
-Navigation: Calculator · Pricing Configurations · Pricing Data · Settings (`AppNav`).
+Navigation: Calculator · Pricing Configurations · Pricing Data · Pricing Reviews · Settings (`AppNav`).
 
 Auth protection is per-page `supabase.auth.getSession()` only.
 
@@ -158,9 +159,18 @@ Pour catalogues are persisted per user in `serving_sizes` (Stage 3C). Provisioni
 - Canonical immutable observations support later Cost Change Review; previous-import helper RPC provided.
 - V1 source rules are Lime Wood–specific (wine PLU range 5000000–5999999 in the current parser only).
 
-### Remaining gaps after Stage 6A
+### Cost Change Review (Stage 6B)
 
-- Pricing Review UI / Cost Change Review / GP recommendations (Stage 6B+)
+- Route `/pricing-reviews`: create/open Cost Change Reviews from the latest two completed pricing imports.
+- Captures an immutable Current Pricing Configuration snapshot + GP tolerance (default 1.0 pts).
+- Compares full-bottle, pricing-valid observations by `pricing_item_id`; cost changes enter the review; new/missing items are reported separately.
+- Old GP = previous cost + **current** Micros selling price; recommended price uses the captured config via the existing pricing engine.
+- Draft decisions persist; completion requires every Requires Attention row to have a decision.
+- Pure domain: `src/lib/pricingReview/`; persistence: `pricing_reviews` / `pricing_review_items`.
+
+### Remaining gaps after Stage 6B
+
+- Full Pricing Review / printable Action Document (Stage 6C+)
 - Scenario Modelling / sales uploads
 - User-facing snapshot manager (not required; snapshots are infrastructure)
 - User-defined wine categories (explicitly deferred)
@@ -209,6 +219,8 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `public.pricing_data_imports` | Immutable completed pricing import events |
 | `public.pricing_observations` | Per-item observed cost/price state per import |
 | `public.pricing_import_issues` | Item exceptions / informational import issues |
+| `public.pricing_reviews` | Cost Change (and later Full) Pricing Reviews |
+| `public.pricing_review_items` | Per-item cost-change calculations and decisions |
 
 **No** sales or scenario tables yet. Categories are not user-configurable. See [`DATA_MODEL.md`](./DATA_MODEL.md) for field-level detail.
 

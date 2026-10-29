@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Rule } from '@/types/rules'
 import {
   DEFAULT_PRICING_POLICY,
+  gpFromCostAndSellingPrice,
   priceSale,
   priceWithGp,
   rawBottleSellingPrice,
@@ -21,6 +22,12 @@ describe('rawBottleSellingPrice / formula', () => {
   it('computes known cost + GP + VAT raw bottle price', () => {
     // cost 10, GP 70, VAT 20% → (10 * 1.2) / (1 - 0.7) = 12 / 0.3 = 40
     expect(rawBottleSellingPrice(10, 70, 0.2)).toBeCloseTo(40, 10)
+  })
+
+  it('inverts selling price back to GP', () => {
+    const gp = gpFromCostAndSellingPrice(10, 40, 0.2)
+    expect(gp).toBeCloseTo(70, 10)
+    expect(rawBottleSellingPrice(10, gp as number, 0.2)).toBeCloseTo(40, 10)
   })
 
   it('applies GP to actual cost after normalised rule lookup', () => {

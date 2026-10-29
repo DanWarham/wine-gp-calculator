@@ -9,6 +9,7 @@ export type AppNavActive =
   | 'calculator'
   | 'pricing-configurations'
   | 'pricing-data'
+  | 'pricing-reviews'
   | 'settings'
 
 interface AppNavProps {
@@ -67,6 +68,18 @@ export function AppNav({ active, showLogout = true }: AppNavProps) {
           onClick={() => router.push('/pricing-data')}
         >
           Pricing Data
+        </Button>
+        <Button
+          variant={active === 'pricing-reviews' ? 'secondary' : 'outline'}
+          disabled={active === 'pricing-reviews'}
+          className={
+            active === 'pricing-reviews'
+              ? undefined
+              : 'border-blue-400 text-blue-600 hover:bg-blue-50'
+          }
+          onClick={() => router.push('/pricing-reviews')}
+        >
+          Pricing Reviews
         </Button>
         <Button
           variant={active === 'settings' ? 'secondary' : 'outline'}
