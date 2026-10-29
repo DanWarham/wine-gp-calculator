@@ -31,8 +31,8 @@ Other dependencies exist (e.g. `lucide-react`, `class-variance-authority`); they
 
 - **Router:** Next.js App Router under `src/app`.
 - **Rendering:** Interactive pages are `'use client'`. Root `layout.tsx` is a Server Component wrapping fonts + `ToastProvider`.
-- **Data access:** Browser talks directly to Supabase via `src/lib/supabaseClient.ts`.
-- **API layer:** No `src/app/api/**` route handlers; no Server Actions for business data.
+- **Data access:** Browser talks directly to Supabase via `src/lib/supabaseClient.ts` for configuration/settings reads/writes.
+- **API layer:** Trusted Next.js route handlers for commercial pricing-data import only (`/api/pricing-data/validate`, `/api/pricing-data/import`). No service-role key in the browser.
 - **Middleware:** No `middleware.ts`.
 - **State:** Page-local `useState` / `useEffect`; toast via React Context. No Redux/Zustand/React Query.
 
@@ -59,10 +59,11 @@ Supabase Auth + Postgres
 | `/` | Wine price calculator | Always loads **Current** Pricing Configuration + Serving Sizes |
 | `/pricing-configurations` | Pricing Configurations master/detail | GP Rules + Pricing Policy per named configuration |
 | `/settings` | Serving Sizes only | Pricing Policy moved into configurations |
+| `/pricing-data` | Pricing source import (Stage 6A) | FnbShop + Micros → immutable snapshot; not Pricing Review |
 
 `/signup` and `/gp-setup` are unsupported (404). New accounts are administrator-controlled via Supabase Auth admin/manual provisioning.
 
-Navigation: Calculator · Pricing Configurations · Settings (`AppNav`).
+Navigation: Calculator · Pricing Configurations · Pricing Data · Settings (`AppNav`).
 
 Auth protection is per-page `supabase.auth.getSession()` only.
 
@@ -150,9 +151,17 @@ Bottle sizes: 375 / 750 / 1500 / custom positive ml. **Invalid custom volume fai
 
 Pour catalogues are persisted per user in `serving_sizes` (Stage 3C). Provisioning defaults: Dry 125/175/250/500, Sparkling 125/150, Sweet / Fortified 75. Bottle is not a serving-size row. The calculator reads persisted rows only. An empty or fully disabled category shows the bottle line and states that no serving sizes are enabled. It does not invent pour rows.
 
-### Remaining gaps after Stage 5
+### Pricing data import (Stage 6A)
 
-- Pricing Review / Scenario Modelling / sales uploads (consume snapshots later)
+- Route `/pricing-data`: upload FnbShop Recipe Detail + three Micros CSVs → validate → complete.
+- Server parse/normalise in `/api/pricing-data/*`; persist via `commit_pricing_data_import`.
+- Canonical immutable observations support later Cost Change Review; previous-import helper RPC provided.
+- V1 source rules are Lime Wood–specific (wine PLU range 5000000–5999999 in the current parser only).
+
+### Remaining gaps after Stage 6A
+
+- Pricing Review UI / Cost Change Review / GP recommendations (Stage 6B+)
+- Scenario Modelling / sales uploads
 - User-facing snapshot manager (not required; snapshots are infrastructure)
 - User-defined wine categories (explicitly deferred)
 - Rule editor keeps overlap messaging and gap assistance. Final structural validity is `validateRuleSetForPricing`.
@@ -196,7 +205,12 @@ Verified against live Supabase project `jcylgbtifwpcjncnnfok` (` wine-gp-calcula
 | `public.pricing_configuration_snapshots` | Immutable configuration snapshots (deduped) |
 | `public.pricing_current_events` | Make Current promotion history |
 | `public.serving_sizes` | User pour/carafe sizes within fixed categories |
-**No** sales, scenario, or import tables. Categories are not user-configurable. See [`DATA_MODEL.md`](./DATA_MODEL.md) for field-level detail.
+| `public.pricing_items` | Persistent PLU identity for pricing imports |
+| `public.pricing_data_imports` | Immutable completed pricing import events |
+| `public.pricing_observations` | Per-item observed cost/price state per import |
+| `public.pricing_import_issues` | Item exceptions / informational import issues |
+
+**No** sales or scenario tables yet. Categories are not user-configurable. See [`DATA_MODEL.md`](./DATA_MODEL.md) for field-level detail.
 
 ### `public.serving_sizes` (unchanged)
 

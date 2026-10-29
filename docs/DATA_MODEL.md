@@ -23,10 +23,11 @@ If migrations and live state disagree, **investigate the drift** — do not sile
 | `20261027092540_create_pricing_configurations.sql` | Pricing Configurations, snapshots, current-events, RPCs, backfill (Stage 5) |
 | `20261027093617_revoke_anon_snapshot_hash_execute.sql` | Revoke anon EXECUTE on snapshot hash helper |
 | `20261027101302_drop_legacy_gp_settings_pricing_policy.sql` | Drop superseded `gp_settings` + `pricing_policy` |
+| `20261029144815_create_pricing_data_import.sql` | Pricing data import tables + commit/previous RPCs (Stage 6A) |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md).
 
-Runtime application tables: `public.pricing_configurations`, `public.pricing_configuration_snapshots`, `public.pricing_current_events`, `public.serving_sizes` (plus `auth.users`). Legacy `gp_settings` / `pricing_policy` have been **dropped**. Sales/scenario entities from `05` are **not** implemented.
+Runtime application tables: `public.pricing_configurations`, `public.pricing_configuration_snapshots`, `public.pricing_current_events`, `public.serving_sizes`, `public.pricing_items`, `public.pricing_data_imports`, `public.pricing_observations`, `public.pricing_import_issues` (plus `auth.users`). Legacy `gp_settings` / `pricing_policy` have been **dropped**. Sales/scenario entities from `05` remain **not** implemented.
 
 ---
 
@@ -38,6 +39,11 @@ erDiagram
   auth_users ||--o{ pricing_configuration_snapshots : "owns"
   auth_users ||--o{ pricing_current_events : "owns"
   auth_users ||--o{ serving_sizes : "owns"
+  auth_users ||--o{ pricing_items : "owns"
+  auth_users ||--o{ pricing_data_imports : "owns"
+  pricing_data_imports ||--o{ pricing_observations : "contains"
+  pricing_data_imports ||--o{ pricing_import_issues : "contains"
+  pricing_items ||--o{ pricing_observations : "observed as"
   pricing_configurations ||--o{ pricing_configuration_snapshots : "source"
   pricing_configurations ||--o{ pricing_current_events : "previous/new"
   pricing_configuration_snapshots ||--o{ pricing_current_events : "previous/new snap"
@@ -77,12 +83,18 @@ Serving Sizes are **not** part of a Pricing Configuration and are **not** snapsh
 | `pricing_configuration_snapshots` | none | SELECT only |
 | `pricing_current_events` | none | SELECT only |
 | `serving_sizes` | none | SELECT, INSERT, UPDATE, DELETE |
+| `pricing_items` | none | SELECT only |
+| `pricing_data_imports` | none | SELECT only |
+| `pricing_observations` | none | SELECT only |
+| `pricing_import_issues` | none | SELECT only |
 Controlled RPCs (EXECUTE for `authenticated` only; not anon):
 
 - `ensure_current_pricing_configuration()`
 - `capture_pricing_configuration_snapshot(uuid)`
 - `make_pricing_configuration_current(uuid)`
 - `pricing_configuration_snapshot_content_hash(...)` (dedup helper)
+- `commit_pricing_data_import(jsonb)` (Stage 6A atomic import write)
+- `get_previous_completed_pricing_data_import(uuid)` (Stage 6B foundation)
 
 ---
 
@@ -132,6 +144,30 @@ Records the factual event “this configuration became Current at this time”. 
 ## `public.serving_sizes`
 
 Unchanged from Stage 3C/4. Runtime pour/carafe catalogue per fixed category. Seeded on genuine first Pricing Configuration provisioning only — intentionally empty lists are never reseeded.
+
+---
+
+## Pricing data import (Stage 6A)
+
+Immutable Lime Wood FnbShop + Micros pricing snapshots. Raw commercial uploads are parsed on the Next.js server boundary and discarded after canonical persistence.
+
+### `public.pricing_items`
+
+Persistent external identity for the current source integration: `(user_id, external_plu)` unique. PLU is not a universal application-wide identity beyond this importer.
+
+### `public.pricing_data_imports`
+
+One completed import event per upload. Stores source filenames/metadata and summary counts. Only `status = completed` rows are persisted (structural failures are not stored).
+
+### `public.pricing_observations`
+
+One item’s observed state within one import. Cost authority is FnbShop (`cost_ex_vat`); selling-price authority is Micros (`selling_price_inc_vat`). `included_for_pricing` is false for item exceptions.
+
+### `public.pricing_import_issues`
+
+Persisted item-exception and informational issues for an import (`severity` ∈ `item_exception` | `informational`).
+
+Writes are via SECURITY DEFINER `commit_pricing_data_import(jsonb)` only. Clients have SELECT; no anon access.
 
 ---
 

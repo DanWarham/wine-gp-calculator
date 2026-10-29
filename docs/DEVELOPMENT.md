@@ -53,6 +53,7 @@ Only scripts defined in `package.json`:
 | Lint | `npm run lint` | `eslint .` (ESLint CLI; `next lint` deprecated from Next 15.5) |
 | Test | `npm test` | `vitest run` (pricing domain financial suite) |
 | Test watch | `npm run test:watch` | `vitest` |
+| Provision test user | `npm run test:provision-user` | One-shot local Auth test-account init (needs `.env.test.local`) |
 
 **Not present in `package.json`:** typecheck script, DB migrate, seed, format, storybook, etc.
 
@@ -79,6 +80,34 @@ other privileged credentials
 ```
 
 Never commit service-role keys or other privileged credentials. Never paste real credentials into documentation.
+
+### Local authenticated test account (optional)
+
+For integration / browser smoke against a disposable Auth user, create git-ignored `.env.test.local`:
+
+```bash
+TEST_USER_EMAIL=
+TEST_USER_PASSWORD=
+```
+
+Requirements:
+
+- Never expose these as `NEXT_PUBLIC_*`.
+- Never commit credentials (`.env*` is git-ignored; only `.env.example` is excepted).
+- Do not put service-role / admin credentials here.
+- Normal `npm test` must succeed without this file.
+
+Helpers live under `src/lib/testSupport/` (`signInAsTestUser`, `provisionTestUserAccount`, `TEST_USER_GP_RULES`).
+
+Initialise / refresh the account (first-use Main Pricing + Serving Sizes + deterministic GP rules):
+
+```bash
+npm run test:provision-user
+```
+
+That script loads `.env.local` + `.env.test.local` via Node `--env-file` (credentials stay off `NEXT_PUBLIC_*`) and is not part of default `npm test`.
+
+Authenticated smoke then uses that account via normal login (manual browser, or future tests importing `signInAsTestUser`).
 
 ---
 
@@ -206,7 +235,8 @@ Schema/auth/RLS are unchanged by Stage 4B3 (dependency-only).
 | Area | Status |
 |------|--------|
 | Pricing domain unit tests | **Vitest** — `src/lib/pricing/pricing.test.ts` |
-| Test scripts | `npm test`, `npm run test:watch` |
+| Test scripts | `npm test`, `npm run test:watch`, `npm run test:provision-user` |
+| Authenticated test account | Optional `.env.test.local` + `src/lib/testSupport/` |
 | E2E / UI tests | Not present |
 | Manual QA focus | Calculator UX, auth redirects, empty-rules modal, BTG display, custom bottle error path |
 

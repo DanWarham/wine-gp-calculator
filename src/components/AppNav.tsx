@@ -1,10 +1,15 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { supabase } from '@/lib/supabaseClient'
 
-export type AppNavActive = 'calculator' | 'pricing-configurations' | 'settings'
+export type AppNavActive =
+  | 'calculator'
+  | 'pricing-configurations'
+  | 'pricing-data'
+  | 'settings'
 
 interface AppNavProps {
   active: AppNavActive
@@ -13,6 +18,23 @@ interface AppNavProps {
 
 export function AppNav({ active, showLogout = true }: AppNavProps) {
   const router = useRouter()
+  const [accountLabel, setAccountLabel] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!showLogout) return
+
+    let cancelled = false
+
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return
+      const email = session?.user?.email?.trim()
+      setAccountLabel(email || null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [showLogout])
 
   return (
     <div className="flex flex-wrap gap-2 justify-between">
@@ -37,6 +59,16 @@ export function AppNav({ active, showLogout = true }: AppNavProps) {
           Pricing Configurations
         </Button>
         <Button
+          variant={active === 'pricing-data' ? 'secondary' : 'outline'}
+          disabled={active === 'pricing-data'}
+          className={
+            active === 'pricing-data' ? undefined : 'border-blue-400 text-blue-600 hover:bg-blue-50'
+          }
+          onClick={() => router.push('/pricing-data')}
+        >
+          Pricing Data
+        </Button>
+        <Button
           variant={active === 'settings' ? 'secondary' : 'outline'}
           disabled={active === 'settings'}
           className={
@@ -48,16 +80,23 @@ export function AppNav({ active, showLogout = true }: AppNavProps) {
         </Button>
       </div>
       {showLogout && (
-        <Button
-          variant="outline"
-          className="text-red-600 border-red-400 hover:bg-red-50"
-          onClick={async () => {
-            await supabase.auth.signOut()
-            router.push('/welcome')
-          }}
-        >
-          Logout
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {accountLabel && (
+            <span className="text-sm text-muted-foreground truncate max-w-[14rem]" title={accountLabel}>
+              {accountLabel}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            className="text-red-600 border-red-400 hover:bg-red-50"
+            onClick={async () => {
+              await supabase.auth.signOut()
+              router.push('/welcome')
+            }}
+          >
+            Logout
+          </Button>
+        </div>
       )}
     </div>
   )

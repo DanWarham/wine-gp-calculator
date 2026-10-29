@@ -60,6 +60,9 @@ flowchart TB
 | `/` | `src/app/page.tsx` | Session required (client check) | Calculator (Current Pricing only) |
 | `/pricing-configurations` | `src/app/pricing-configurations/page.tsx` | Session required | Pricing Configurations |
 | `/settings` | `src/app/settings/page.tsx` | Session required | Serving Sizes |
+| `/pricing-data` | `src/app/pricing-data/page.tsx` | Session required | Pricing source import |
+| `/api/pricing-data/validate` | `src/app/api/pricing-data/validate/route.ts` | Bearer JWT | Parse/validate uploads (no persist) |
+| `/api/pricing-data/import` | `src/app/api/pricing-data/import/route.ts` | Bearer JWT | Parse + atomic commit |
 
 `/signup` and `/gp-setup` removed. Public self-registration is disabled; accounts are administrator-controlled.
 
@@ -81,10 +84,10 @@ Persistence and auth are entirely **Supabase**:
 
 | Kind | Present? |
 |------|----------|
-| Next.js Route Handlers (`src/app/api`) | **No** |
+| Next.js Route Handlers (`src/app/api`) | **Yes** — pricing-data validate/import only |
 | Server Actions | **No** |
 | Edge Functions (in repo) | **No** |
-| Supabase client calls from pages | **Yes** (de facto API) |
+| Supabase client calls from pages | **Yes** (configs/settings); import commits via authenticated RPC after server parse |
 
 Effective “API” surface used by the app:
 
