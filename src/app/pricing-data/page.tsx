@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppNav } from '@/components/AppNav'
 import { Button } from '@/components/ui/button'
@@ -8,10 +8,20 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useToast } from '@/components/toast-provider'
 import {
+  countImportsForDataMonth,
+  currentDataMonthIso,
+  dataMonthFromMonthInput,
+  formatDataMonth,
+  monthInputFromDataMonth,
+} from '@/lib/pricingImport/dataMonth'
+import { buildImportIssuesCsv, issueDisplayName } from '@/lib/pricingImport/issueDisplay'
+import {
   completePricingDataImport,
+  deletePricingDataImport,
   listPricingDataImports,
   listPricingImportIssues,
   validatePricingDataImport,
+  type PricingDataImportListItem,
 } from '@/lib/pricingDataImportStore'
 import { supabase } from '@/lib/supabaseClient'
 import type {
@@ -32,6 +42,7 @@ export default function PricingDataPage() {
   const [step, setStep] = useState<Step>('select')
   const [error, setError] = useState<string | null>(null)
 
+  const [dataMonth, setDataMonth] = useState(currentDataMonthIso())
   const [fnbshopFile, setFnbshopFile] = useState<File | null>(null)
   const [masterFile, setMasterFile] = useState<File | null>(null)
   const [definitionFile, setDefinitionFile] = useState<File | null>(null)
@@ -40,10 +51,19 @@ export default function PricingDataPage() {
   const [summary, setSummary] = useState<PricingImportSummary | null>(null)
   const [issues, setIssues] = useState<PricingImportIssue[]>([])
   const [result, setResult] = useState<PricingDataImportResult | null>(null)
-  const [recentImports, setRecentImports] = useState<
-    { id: string; importedAt: string; summary: PricingImportSummary }[]
-  >([])
+  const [recentImports, setRecentImports] = useState<PricingDataImportListItem[]>([])
   const [showIssues, setShowIssues] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const sameMonthCount = useMemo(
+    () => countImportsForDataMonth(recentImports, dataMonth),
+    [recentImports, dataMonth]
+  )
+
+  const reloadImports = async (uid: string) => {
+    const listed = await listPricingDataImports(uid)
+    if (listed.ok) setRecentImports(listed.data)
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -55,16 +75,7 @@ export default function PricingDataPage() {
         return
       }
       setUserId(session.user.id)
-      const listed = await listPricingDataImports(session.user.id)
-      if (listed.ok) {
-        setRecentImports(
-          listed.data.slice(0, 5).map((row) => ({
-            id: row.id,
-            importedAt: row.importedAt,
-            summary: row.summary,
-          }))
-        )
-      }
+      await reloadImports(session.user.id)
       setLoading(false)
     }
     void load()
@@ -87,7 +98,7 @@ export default function PricingDataPage() {
     if (!files) return
     setBusy(true)
     setError(null)
-    const validated = await validatePricingDataImport(files)
+    const validated = await validatePricingDataImport(files, dataMonth)
     setBusy(false)
     if (!validated.ok) {
       setStep('select')
@@ -109,7 +120,7 @@ export default function PricingDataPage() {
     if (!files || !userId) return
     setBusy(true)
     setError(null)
-    const completed = await completePricingDataImport(files)
+    const completed = await completePricingDataImport(files, dataMonth)
     setBusy(false)
     if (!completed.ok) {
       setError(completed.error)
@@ -124,18 +135,8 @@ export default function PricingDataPage() {
     setShowIssues(completed.result.issues.length > 0)
     showToast('Pricing data import completed.')
 
-    const listed = await listPricingDataImports(userId)
-    if (listed.ok) {
-      setRecentImports(
-        listed.data.slice(0, 5).map((row) => ({
-          id: row.id,
-          importedAt: row.importedAt,
-          summary: row.summary,
-        }))
-      )
-    }
+    await reloadImports(userId)
 
-    // Confirm issues were persisted for this import
     const persisted = await listPricingImportIssues(completed.result.importId, userId)
     if (persisted.ok && persisted.data.length > 0) {
       setIssues(persisted.data)
@@ -155,6 +156,44 @@ export default function PricingDataPage() {
     setPriceFile(null)
   }
 
+  const onDeleteImport = async (importRow: PricingDataImportListItem) => {
+    if (!userId) return
+    const label = formatDataMonth(importRow.dataMonth)
+    const confirmed = window.confirm(
+      `Delete the ${label} import from ${new Date(importRow.importedAt).toLocaleString()}?\n\n` +
+        'This removes its observations and issues. Draft Pricing Reviews that use this import are also deleted.\n' +
+        'Completed Pricing Reviews that depend on this import will block deletion.'
+    )
+    if (!confirmed) return
+
+    setDeletingId(importRow.id)
+    const deleted = await deletePricingDataImport(importRow.id)
+    setDeletingId(null)
+    if (!deleted.ok) {
+      showToast(deleted.error)
+      return
+    }
+    showToast(
+      deleted.data.draftReviewsDeleted > 0
+        ? `Import deleted (${deleted.data.draftReviewsDeleted} draft review(s) removed).`
+        : 'Import deleted.'
+    )
+    await reloadImports(userId)
+    if (result?.importId === importRow.id) onReset()
+  }
+
+  const onExportIssuesCsv = () => {
+    if (issues.length === 0) return
+    const csv = buildImportIssuesCsv(issues)
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pricing-import-issues-${result?.importId?.slice(0, 8) ?? 'preview'}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (loading) {
     return (
       <main className="mx-auto max-w-3xl p-6">
@@ -171,7 +210,7 @@ export default function PricingDataPage() {
         <h1 className="text-2xl font-semibold text-slate-900">Pricing Data</h1>
         <p className="mt-1 text-sm text-slate-600">
           Import FnbShop Recipe Detail and Micros menu item reports into an immutable pricing
-          snapshot. Pricing Review itself is not built yet.
+          snapshot for a chosen data month.
         </p>
       </div>
 
@@ -180,6 +219,30 @@ export default function PricingDataPage() {
           <CardTitle className="text-lg">Source files</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <label className="block space-y-1 text-sm">
+            <span className="font-medium text-slate-800">Data month</span>
+            <Input
+              type="month"
+              disabled={busy || step === 'completed'}
+              value={monthInputFromDataMonth(dataMonth)}
+              onChange={(e) => {
+                const next = dataMonthFromMonthInput(e.target.value)
+                if (next) setDataMonth(next)
+              }}
+            />
+            <span className="text-xs text-slate-500">
+              Dataset month: {formatDataMonth(dataMonth)} (upload time is stored separately)
+            </span>
+          </label>
+
+          {sameMonthCount > 0 && step !== 'completed' && (
+            <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              There {sameMonthCount === 1 ? 'is already' : 'are already'} {sameMonthCount} completed
+              import{sameMonthCount === 1 ? '' : 's'} for {formatDataMonth(dataMonth)}. Another
+              import is allowed; the latest upload for that month becomes the current dataset.
+            </div>
+          )}
+
           <FileField
             label="FnbShop Recipe Detail (.xlsx)"
             accept=".xlsx"
@@ -245,15 +308,21 @@ export default function PricingDataPage() {
           <CardContent className="space-y-3 text-sm">
             {result && (
               <p className="text-slate-600">
-                Import completed at {new Date(result.importedAt).toLocaleString()}.
+                {formatDataMonth(result.dataMonth)} · imported{' '}
+                {new Date(result.importedAt).toLocaleString()}.
               </p>
             )}
             <SummaryList summary={summary} />
             {issues.length > 0 && (
               <div className="space-y-2">
-                <Button variant="outline" size="sm" onClick={() => setShowIssues((v) => !v)}>
-                  {showIssues ? 'Hide issue details' : `Show issue details (${issues.length})`}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowIssues((v) => !v)}>
+                    {showIssues ? 'Hide issue details' : `Show issue details (${issues.length})`}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={onExportIssuesCsv}>
+                    Export Issues CSV
+                  </Button>
+                </div>
                 {showIssues && <IssueList issues={issues} />}
               </div>
             )}
@@ -267,13 +336,29 @@ export default function PricingDataPage() {
             <CardTitle className="text-lg">Recent imports</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate-700">
-            {recentImports.map((row) => (
-              <div key={row.id} className="flex flex-wrap justify-between gap-2 border-b border-slate-100 py-2 last:border-0">
-                <span>{new Date(row.importedAt).toLocaleString()}</span>
-                <span>
-                  {row.summary.matchedCount} matched · {row.summary.excludedExceptionCount}{' '}
-                  excluded · {row.summary.fnbshopWineRecipeCount} wine recipes
-                </span>
+            {recentImports.slice(0, 12).map((row) => (
+              <div
+                key={row.id}
+                className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 py-2 last:border-0"
+              >
+                <div>
+                  <div className="font-medium">{formatDataMonth(row.dataMonth)}</div>
+                  <div className="text-xs text-slate-500">
+                    Uploaded {new Date(row.importedAt).toLocaleString()}
+                  </div>
+                  <div className="text-xs text-slate-600 mt-0.5">
+                    {row.summary.matchedCount} matched · {row.summary.excludedExceptionCount}{' '}
+                    excluded · {row.summary.fnbshopWineRecipeCount} wine recipes
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={deletingId === row.id}
+                  onClick={() => void onDeleteImport(row)}
+                >
+                  {deletingId === row.id ? 'Deleting…' : 'Delete'}
+                </Button>
               </div>
             ))}
           </CardContent>
@@ -333,40 +418,32 @@ function SummaryList({ summary }: { summary: PricingImportSummary }) {
 }
 
 function IssueList({ issues }: { issues: PricingImportIssue[] }) {
-  const exceptions = issues.filter((i) => i.severity === 'item_exception')
-  const info = issues.filter((i) => i.severity === 'informational')
   return (
-    <div className="max-h-80 space-y-3 overflow-auto rounded border border-slate-200 p-3">
-      {exceptions.length > 0 && (
-        <section>
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">
-            Item exceptions ({exceptions.length})
-          </h3>
-          <ul className="space-y-1 text-xs text-slate-700">
-            {exceptions.map((issue, idx) => (
-              <li key={`ex-${idx}`}>
-                {issue.externalPlu ? `PLU ${issue.externalPlu}: ` : ''}
-                {issue.message}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {info.length > 0 && (
-        <section>
-          <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Informational ({info.length})
-          </h3>
-          <ul className="space-y-1 text-xs text-slate-600">
-            {info.map((issue, idx) => (
-              <li key={`info-${idx}`}>
-                {issue.externalPlu ? `PLU ${issue.externalPlu}: ` : ''}
-                {issue.message}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+    <div className="max-h-96 overflow-auto rounded border border-slate-200">
+      <table className="w-full text-xs">
+        <thead className="bg-slate-50 text-left sticky top-0">
+          <tr className="border-b">
+            <th className="px-2 py-1.5 font-medium">PLU</th>
+            <th className="px-2 py-1.5 font-medium">Wine</th>
+            <th className="px-2 py-1.5 font-medium">Severity</th>
+            <th className="px-2 py-1.5 font-medium">Issue type</th>
+            <th className="px-2 py-1.5 font-medium">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {issues.map((issue, idx) => (
+            <tr key={`${issue.externalPlu ?? 'x'}-${idx}`} className="border-b align-top">
+              <td className="px-2 py-1.5 whitespace-nowrap">{issue.externalPlu ?? '—'}</td>
+              <td className="px-2 py-1.5">{issueDisplayName(issue)}</td>
+              <td className="px-2 py-1.5 whitespace-nowrap">
+                {issue.severity === 'item_exception' ? 'Exception' : 'Informational'}
+              </td>
+              <td className="px-2 py-1.5 whitespace-nowrap">{issue.issueType}</td>
+              <td className="px-2 py-1.5 text-slate-700">{issue.message}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

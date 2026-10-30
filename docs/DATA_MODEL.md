@@ -26,6 +26,7 @@ If migrations and live state disagree, **investigate the drift** — do not sile
 | `20261029144815_create_pricing_data_import.sql` | Pricing data import tables + commit/previous RPCs (Stage 6A) |
 | `20261029161358_create_pricing_reviews.sql` | Cost Change Review tables + commit/complete RPCs (Stage 6B) |
 | `20261029223152_extend_pricing_reviews_full_and_actions.sql` | Full Pricing Review type + commit RPC (Stage 6C) |
+| `20261030121726_pricing_import_data_month_delete_and_issue_names.sql` | Import `data_month`, safe delete RPC, issue names, review item append |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md).
 
@@ -106,7 +107,9 @@ Controlled RPCs (EXECUTE for `authenticated` only; not anon):
 - `get_previous_completed_pricing_data_import(uuid)` (Stage 6B foundation)
 - `commit_cost_change_review(jsonb)` (Stage 6B draft create)
 - `commit_full_pricing_review(jsonb)` (Stage 6C Full Pricing Review draft create)
+- `append_pricing_review_items(uuid, jsonb)` (batched review item insert)
 - `complete_pricing_review(uuid)` (Stage 6B/6C completion)
+- `delete_pricing_data_import(uuid)` (safe import deletion)
 
 ---
 

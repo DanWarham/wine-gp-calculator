@@ -26,6 +26,8 @@ export interface PricingImportSummary {
 
 export interface PricingImportIssue {
   externalPlu: string | null
+  /** Prefer FnbShop description, else Micros description. */
+  itemName: string | null
   severity: PricingImportIssueSeverity
   issueType: PricingImportIssueType | string
   message: string
@@ -49,6 +51,8 @@ export interface PricingObservationDraft {
 export interface PricingDataImportResult {
   importId: string
   importedAt: string
+  /** First-of-month ISO date for the dataset month. */
+  dataMonth: string
   status: 'completed'
   sourceFilenames: Record<string, string>
   summary: PricingImportSummary
@@ -79,6 +83,7 @@ export interface PricingDataImportRow {
   id: string
   user_id: string
   imported_at: string
+  data_month: string
   status: string
   source_system: string
   source_filenames: Record<string, string>

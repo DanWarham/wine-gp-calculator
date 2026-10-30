@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { buildLimeWoodPricingImport } from '@/lib/pricingImport/limeWoodImport'
+import { parseDataMonthFromForm } from '@/lib/pricingImport/parseDataMonthForm'
 import { readPricingImportFormData } from '@/lib/pricingImport/uploadFiles'
 import { requireAuthenticatedUser } from '@/lib/supabaseServer'
 
@@ -22,6 +23,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid multipart upload.' }, { status: 400 })
   }
 
+  const dataMonthParsed = parseDataMonthFromForm(form)
+  if (!dataMonthParsed.ok) {
+    return NextResponse.json({ error: dataMonthParsed.error, blocked: true }, { status: 400 })
+  }
+
   const files = await readPricingImportFormData(form)
   if (!files.ok) {
     return NextResponse.json({ error: files.error, blocked: true }, { status: 400 })
@@ -41,7 +47,10 @@ export async function POST(request: Request) {
   }
 
   const { data, error } = await auth.supabase.rpc('commit_pricing_data_import', {
-    p_payload: built.commitPayload,
+    p_payload: {
+      ...built.commitPayload,
+      data_month: dataMonthParsed.dataMonth,
+    },
   })
 
   if (error) {
@@ -59,6 +68,7 @@ export async function POST(request: Request) {
   const payload = data as {
     import_id: string
     imported_at: string
+    data_month?: string
     status: string
     summary: Record<string, number>
   }
@@ -67,6 +77,7 @@ export async function POST(request: Request) {
     ok: true,
     importId: payload.import_id,
     importedAt: payload.imported_at,
+    dataMonth: payload.data_month ?? dataMonthParsed.dataMonth,
     status: payload.status,
     sourceFilenames: built.validation.sourceFilenames,
     summary: built.validation.summary,

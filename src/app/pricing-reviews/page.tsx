@@ -124,8 +124,9 @@ export default function PricingReviewsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Pricing Reviews</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Cost Change Reviews compare the latest two imports. Full Pricing Reviews examine
-            every eligible bottle in the latest import against Current Pricing.
+            Cost Change Reviews compare the latest data month with the previous available data
+            month. Full Pricing Reviews examine every eligible bottle in the latest import against
+            Current Pricing.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

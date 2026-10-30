@@ -14,6 +14,7 @@ import {
   parseMicrosReports,
   type MicrosResolvedItem,
 } from '@/lib/pricingImport/micros/parseMenuItemReports'
+import { resolveImportItemName } from '@/lib/pricingImport/issueDisplay'
 import { classifyServe } from '@/lib/pricingImport/volumes'
 import type {
   PricingDataImportValidation,
@@ -21,6 +22,13 @@ import type {
   PricingImportSummary,
   PricingObservationDraft,
 } from '@/types/pricingDataImport'
+
+function issueName(
+  fnbshopDescription: string | null | undefined,
+  microsDescription: string | null | undefined
+): string | null {
+  return resolveImportItemName(fnbshopDescription, microsDescription)
+}
 
 export interface LimeWoodImportFiles {
   fnbshopRecipeDetail: ArrayBuffer | Buffer | Uint8Array
@@ -57,6 +65,7 @@ function blocked(message: string, extra: PricingImportIssue[] = []): LimeWoodImp
       issues: [
         {
           externalPlu: null,
+          itemName: null,
           severity: 'item_exception',
           issueType: 'structural_source_failure',
           message,
@@ -161,17 +170,22 @@ export async function buildLimeWoodPricingImport(
       )
       issues.push({
         externalPlu: recipe.plu,
+        itemName: issueName(recipe.description, null),
         severity: 'item_exception',
         issueType: 'duplicate_plu',
         message: `Duplicate FnbShop wine PLU ${recipe.plu} causes unresolved ambiguity.`,
       })
     }
 
+    const { match, ambiguous } = pickMicrosMatch(microsIndex.byPlu.get(recipe.plu))
+    const itemName = issueName(recipe.description, match?.description)
+
     if (classification.itemType == null) {
       included = false
       exceptionMessages.push(classification.reason)
       issues.push({
         externalPlu: recipe.plu,
+        itemName,
         severity: 'item_exception',
         issueType: 'unresolved_package_size',
         message: classification.reason,
@@ -183,13 +197,12 @@ export async function buildLimeWoodPricingImport(
       exceptionMessages.push('Cost Price is zero, missing, or invalid.')
       issues.push({
         externalPlu: recipe.plu,
+        itemName,
         severity: 'item_exception',
         issueType: 'invalid_cost',
         message: `PLU ${recipe.plu}: Cost Price is zero, missing, or invalid.`,
       })
     }
-
-    const { match, ambiguous } = pickMicrosMatch(microsIndex.byPlu.get(recipe.plu))
 
     if (!match) {
       included = false
@@ -197,6 +210,7 @@ export async function buildLimeWoodPricingImport(
         exceptionMessages.push('Micros price/definition match is ambiguous.')
         issues.push({
           externalPlu: recipe.plu,
+          itemName,
           severity: 'item_exception',
           issueType: 'ambiguous_micros_price',
           message: `PLU ${recipe.plu}: Micros price/definition match is ambiguous.`,
@@ -205,6 +219,7 @@ export async function buildLimeWoodPricingImport(
         exceptionMessages.push('No Micros Menu Item Master match for this PLU.')
         issues.push({
           externalPlu: recipe.plu,
+          itemName,
           severity: 'item_exception',
           issueType: 'missing_micros_match',
           message: `PLU ${recipe.plu}: No Micros Menu Item Master match for this PLU.`,
@@ -215,6 +230,7 @@ export async function buildLimeWoodPricingImport(
       exceptionMessages.push('Micros selling price is ambiguous.')
       issues.push({
         externalPlu: recipe.plu,
+        itemName,
         severity: 'item_exception',
         issueType: 'ambiguous_micros_price',
         message: `PLU ${recipe.plu}: Micros selling price is ambiguous.`,
@@ -224,6 +240,7 @@ export async function buildLimeWoodPricingImport(
       exceptionMessages.push('Micros selling price is missing or invalid.')
       issues.push({
         externalPlu: recipe.plu,
+        itemName,
         severity: 'item_exception',
         issueType: 'missing_micros_price',
         message: `PLU ${recipe.plu}: Micros selling price is missing or invalid.`,
@@ -277,6 +294,7 @@ export async function buildLimeWoodPricingImport(
         informationalIssueCount++
         issues.push({
           externalPlu: plu,
+          itemName: issueName(null, name),
           severity: 'informational',
           issueType: 'micros_only_active',
           message: `Micros-only PLU ${plu} (${name}) has active-looking Main Menu Level ${item.mainMenuLevel} and was not included automatically.`,
@@ -288,6 +306,7 @@ export async function buildLimeWoodPricingImport(
       informationalIssueCount++
       issues.push({
         externalPlu: plu,
+        itemName: issueName(null, name),
         severity: 'informational',
         issueType: 'micros_only_active',
         message: `Micros-only PLU ${plu} (${name}) with Main Menu Level ${item.mainMenuLevel || '(empty)'} was not included automatically.`,
@@ -341,6 +360,7 @@ export async function buildLimeWoodPricingImport(
     })),
     issues: issues.map((issue) => ({
       external_plu: issue.externalPlu,
+      item_name: issue.itemName,
       severity: issue.severity,
       issue_type: issue.issueType,
       message: issue.message,

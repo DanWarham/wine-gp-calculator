@@ -65,6 +65,22 @@ describe('selectFullReviewObservations', () => {
     ])
     expect(selected.map((o) => o.externalPlu)).toEqual(['5000001'])
   })
+
+  it('retains every eligible bottle for datasets larger than 1000 rows', () => {
+    const observations = Array.from({ length: 1105 }, (_, i) =>
+      obs({
+        pricingItemId: `item-${i}`,
+        externalPlu: String(5000000 + i),
+        includedForPricing: i !== 3,
+        itemType: i === 4 ? 'partial_serve' : 'full_bottle',
+      })
+    )
+    const selected = selectFullReviewObservations(observations)
+    // 1105 − 1 excluded − 1 partial = 1103
+    expect(selected).toHaveLength(1103)
+    expect(selected.some((o) => o.externalPlu === '5000003')).toBe(false)
+    expect(selected.some((o) => o.externalPlu === '5000004')).toBe(false)
+  })
 })
 
 describe('Full Review calculations', () => {

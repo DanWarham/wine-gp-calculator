@@ -161,13 +161,13 @@ Pour catalogues are persisted per user in `serving_sizes` (Stage 3C). Provisioni
 
 ### Cost Change Review (Stage 6B) + Full Pricing Review / Action Document (Stage 6C)
 
-- Route `/pricing-reviews`: create/open Cost Change Reviews (latest two imports) or Full Pricing Reviews (latest import, all eligible full bottles).
+- Route `/pricing-reviews`: create/open Cost Change Reviews or Full Pricing Reviews.
+- Imports carry required `data_month` (display e.g. October 2026). Cost Change compares the latest data month with the previous available data month (latest upload within each month). `imported_at` remains audit metadata.
 - Captures an immutable Current Pricing Configuration snapshot + GP tolerance (default 1.0 pts).
-- Cost Change: compares full-bottle, pricing-valid observations by `pricing_item_id`; cost changes enter the review; new/missing items are reported separately. Old GP = previous cost + **current** Micros selling price.
-- Full Review: every eligible full bottle (`included_for_pricing`) under the latest import; attention when current GP &lt; target GP − tolerance. No artificial old→current cost comparison.
-- Recommended price uses the captured config via the existing pricing engine. Previous unresolved Change Price / De-list decisions apply across review types.
-- Draft decisions persist; completion requires every Requires Attention row to have a decision.
-- Completed reviews: printable Action Document at `/pricing-reviews/[id]/actions` (price changes + de-lists checklist; No Action omitted from working sections).
+- Observation/review-item reads paginate past PostgREST `max_rows` (1000); review create appends items in batches.
+- Full Review: every eligible full bottle under the latest import; attention when current GP &lt; target GP − tolerance.
+- Completed reviews: printable Action Document at `/pricing-reviews/[id]/actions`.
+- Pricing Data: month picker, duplicate-month warning, safe Delete Import (blocked when a completed review depends on it; draft reviews referencing the import are removed), issue table + Export Issues CSV.
 - Pure domain: `src/lib/pricingReview/`; persistence: `pricing_reviews` / `pricing_review_items`.
 
 ### Remaining gaps after Stage 6C

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { buildLimeWoodPricingImport } from '@/lib/pricingImport/limeWoodImport'
+import { parseDataMonthFromForm } from '@/lib/pricingImport/parseDataMonthForm'
 import { readPricingImportFormData } from '@/lib/pricingImport/uploadFiles'
 import { requireAuthenticatedUser } from '@/lib/supabaseServer'
 
@@ -22,6 +23,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid multipart upload.' }, { status: 400 })
   }
 
+  const dataMonthParsed = parseDataMonthFromForm(form)
+  if (!dataMonthParsed.ok) {
+    return NextResponse.json({ error: dataMonthParsed.error, blocked: true }, { status: 400 })
+  }
+
   const files = await readPricingImportFormData(form)
   if (!files.ok) {
     return NextResponse.json({ error: files.error, blocked: true }, { status: 400 })
@@ -42,6 +48,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ok: true,
+    dataMonth: dataMonthParsed.dataMonth,
     sourceFilenames: built.validation.sourceFilenames,
     summary: built.validation.summary,
     issues: built.validation.issues,

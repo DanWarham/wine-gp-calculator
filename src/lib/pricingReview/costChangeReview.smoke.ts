@@ -35,6 +35,7 @@ async function commitFixtureImport(options: {
     measurement: string
   }>
   microsPriceByPlu: Record<string, string>
+  dataMonth?: string
 }): Promise<string> {
   const fnbshop = await buildFnbShopRecipeDetailXlsx(options.recipes)
   const masters = options.recipes.map((r, i) => ({
@@ -70,7 +71,10 @@ async function commitFixtureImport(options: {
   expect(built.commitPayload).toBeTruthy()
 
   const { data, error } = await supabase.rpc('commit_pricing_data_import', {
-    p_payload: built.commitPayload,
+    p_payload: {
+      ...built.commitPayload,
+      data_month: options.dataMonth ?? '2026-10-01',
+    },
   })
   expect(error).toBeNull()
   return String((data as { import_id: string }).import_id)
@@ -135,6 +139,7 @@ describe('Stage 6B Cost Change Review smoke', () => {
         '5000103': '60',
         '5000105': '95',
       },
+      dataMonth: '2026-09-01',
     })
 
     // Brief pause so imported_at ordering is unambiguous if clocks are coarse.
@@ -190,6 +195,7 @@ describe('Stage 6B Cost Change Review smoke', () => {
         '5000104': '72',
         '5000105': '95',
       },
+      dataMonth: '2026-10-01',
     })
 
     expect(firstImportId).not.toBe(secondImportId)

@@ -30,21 +30,32 @@ function obs(partial: Partial<ReviewObservation> & Pick<ReviewObservation, 'pric
 }
 
 describe('selectLatestAndPreviousImports', () => {
-  it('selects newest as latest and next as previous', () => {
+  it('selects latest upload in the latest data month, previous = latest of prior month', () => {
     const pair = selectLatestAndPreviousImports([
-      { id: 'b', importedAt: '2026-10-02T00:00:00Z' },
-      { id: 'a', importedAt: '2026-10-01T00:00:00Z' },
+      { id: 'oct-late', importedAt: '2026-10-15T00:00:00Z', dataMonth: '2026-10-01' },
+      { id: 'oct-early', importedAt: '2026-10-02T00:00:00Z', dataMonth: '2026-10-01' },
+      { id: 'sep', importedAt: '2026-09-20T00:00:00Z', dataMonth: '2026-09-01' },
     ])
     expect(pair).toEqual({
-      latest: { id: 'b', importedAt: '2026-10-02T00:00:00Z' },
-      previous: { id: 'a', importedAt: '2026-10-01T00:00:00Z' },
+      latest: { id: 'oct-late', importedAt: '2026-10-15T00:00:00Z', dataMonth: '2026-10-01' },
+      previous: { id: 'sep', importedAt: '2026-09-20T00:00:00Z', dataMonth: '2026-09-01' },
     })
   })
 
-  it('returns null when fewer than two imports exist', () => {
+  it('skips same-month prior uploads when finding the previous data month', () => {
+    const pair = selectLatestAndPreviousImports([
+      { id: 'b', importedAt: '2026-10-02T00:00:00Z', dataMonth: '2026-10-01' },
+      { id: 'a', importedAt: '2026-10-01T00:00:00Z', dataMonth: '2026-10-01' },
+    ])
+    expect(pair).toBeNull()
+  })
+
+  it('returns null when fewer than two data months exist', () => {
     expect(selectLatestAndPreviousImports([])).toBeNull()
     expect(
-      selectLatestAndPreviousImports([{ id: 'a', importedAt: '2026-10-01T00:00:00Z' }])
+      selectLatestAndPreviousImports([
+        { id: 'a', importedAt: '2026-10-01T00:00:00Z', dataMonth: '2026-10-01' },
+      ])
     ).toBeNull()
   })
 })

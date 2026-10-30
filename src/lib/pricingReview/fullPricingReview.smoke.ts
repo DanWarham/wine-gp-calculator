@@ -48,6 +48,7 @@ async function commitFixtureImport(options: {
     measurement: string
   }>
   microsPriceByPlu: Record<string, string>
+  dataMonth?: string
 }): Promise<string> {
   const fnbshop = await buildFnbShopRecipeDetailXlsx(options.recipes)
   const masters = options.recipes.map((r, i) => ({
@@ -83,7 +84,10 @@ async function commitFixtureImport(options: {
   expect(built.commitPayload).toBeTruthy()
 
   const { data, error } = await supabase.rpc('commit_pricing_data_import', {
-    p_payload: built.commitPayload,
+    p_payload: {
+      ...built.commitPayload,
+      data_month: options.dataMonth ?? '2026-10-01',
+    },
   })
   expect(error).toBeNull()
   return String((data as { import_id: string }).import_id)
@@ -169,7 +173,10 @@ describe('Stage 6C Full Pricing Review + Action Document smoke', () => {
 
     try {
       // Fresh latest import for Full Review.
-      const importId = await commitFixtureImport(smokeRecipes(0))
+      const importId = await commitFixtureImport({
+        ...smokeRecipes(0),
+        dataMonth: '2026-10-01',
+      })
       createdIds.importIds.push(importId)
 
       const created = await createFullPricingReview(userId)
@@ -363,7 +370,10 @@ describe('Stage 6C Full Pricing Review + Action Document smoke', () => {
 
       // --- Cost Change Review Action Document (same format) ---
       await new Promise((r) => setTimeout(r, 1100))
-      const secondImportId = await commitFixtureImport(smokeRecipes(2))
+      const secondImportId = await commitFixtureImport({
+        ...smokeRecipes(2),
+        dataMonth: '2026-11-01',
+      })
       createdIds.importIds.push(secondImportId)
 
       const costCreated = await createCostChangeReview(userId)

@@ -5,11 +5,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   arrowForDelta,
+  costDeltaClass,
   formatGp,
   formatMoney,
   formatSignedMoney,
   formatSignedPercent,
   formatSignedPoints,
+  gpDeltaClass,
+  priceDeltaClass,
 } from '@/lib/pricingReview/format'
 import { resultingGpForProposedPrice } from '@/lib/pricingReview/costChangeReview'
 import type {
@@ -104,14 +107,14 @@ export function CostChangeReviewTable({
 
   return (
     <div className="overflow-x-auto border rounded-md">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm table-fixed">
         <thead className="bg-muted/40 text-left">
           <tr className="border-b">
-            <th className="px-3 py-2 font-medium w-[22%]">Wine</th>
-            <th className="px-3 py-2 font-medium w-[18%]">Cost</th>
-            <th className="px-3 py-2 font-medium w-[28%]">GP</th>
-            <th className="px-3 py-2 font-medium w-[14%]">Price</th>
-            <th className="px-3 py-2 font-medium w-[18%]">Decision</th>
+            <th className="px-2 py-1.5 font-medium w-[22%]">Wine</th>
+            <th className="px-2 py-1.5 font-medium w-[14%]">Cost</th>
+            <th className="px-2 py-1.5 font-medium w-[28%]">GP</th>
+            <th className="px-2 py-1.5 font-medium w-[14%]">Price</th>
+            <th className="px-2 py-1.5 font-medium w-[22%]">Decision</th>
           </tr>
         </thead>
         <tbody>
@@ -165,42 +168,38 @@ function ReviewRow({
 
   return (
     <tr className="border-b align-top hover:bg-muted/20">
-      <td className="px-3 py-2">
-        <div className="font-medium leading-tight">
+      <td className="px-2 py-1.5">
+        <div className="font-medium leading-tight text-[13px]">
           {item.description ?? 'Untitled wine'}
         </div>
-        <div className="text-xs text-muted-foreground">PLU {item.externalPlu}</div>
+        <div className="text-[11px] text-muted-foreground">PLU {item.externalPlu}</div>
         {item.previousChangePricePending && (
-          <div className="text-xs text-amber-700 mt-1">
+          <div className="text-[11px] text-amber-700 mt-0.5">
             Previous price-change action not yet reflected
             {item.previousProposedPriceIncVat != null
-              ? ` · Change price → ${formatMoney(item.previousProposedPriceIncVat)}`
+              ? ` · ${formatMoney(item.previousProposedPriceIncVat)}`
               : ''}
           </div>
         )}
         {item.previousDelistPending && (
-          <div className="text-xs text-amber-700 mt-1">
+          <div className="text-[11px] text-amber-700 mt-0.5">
             Previous de-list decision still pending
           </div>
         )}
       </td>
 
-      <td className="px-3 py-2 whitespace-nowrap">
+      <td className="px-2 py-1.5 whitespace-nowrap">
         {isFull ? (
           <>
             <div>{formatMoney(item.currentCostExVat)}</div>
-            <div className="text-xs text-muted-foreground">
-              {Number.isInteger(item.bottleSizeMl)
-                ? `${item.bottleSizeMl}ml`
-                : `${item.bottleSizeMl}ml`}
-            </div>
+            <div className="text-[11px] text-muted-foreground">{item.bottleSizeMl}ml</div>
           </>
         ) : (
           <>
-            <div>
+            <div className="text-[13px]">
               {formatMoney(item.previousCostExVat)} → {formatMoney(item.currentCostExVat)}
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className={`text-[11px] ${costDeltaClass(costDelta)}`}>
               {arrowForDelta(costDelta)} {formatSignedMoney(costDelta)}
               {costPct != null ? ` · ${formatSignedPercent(costPct)}` : ''}
             </div>
@@ -208,46 +207,46 @@ function ReviewRow({
         )}
       </td>
 
-      <td className="px-3 py-2">
+      <td className="px-2 py-1.5">
         {isFull ? (
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 gap-y-0.5 items-start">
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-1.5 items-start">
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
                 Current
               </div>
               <div>{formatGp(item.currentGp)}</div>
             </div>
-            <div className="text-muted-foreground self-stretch border-l" />
+            <div className="text-muted-foreground/50 self-stretch border-l" />
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
                 Target
               </div>
               <div>{formatGp(item.targetGp)}</div>
-              <div className="text-xs text-muted-foreground">
+              <div className={`text-[11px] ${gpDeltaClass(vsTarget)}`}>
                 {arrowForDelta(vsTarget)} {formatSignedPoints(vsTarget)}
               </div>
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 gap-y-0.5 items-start">
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-1.5 items-start">
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
                 Old → Current
               </div>
-              <div>
+              <div className="text-[13px]">
                 {formatGp(item.oldGp)} → {formatGp(item.currentGp)}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className={`text-[11px] ${gpDeltaClass(gpDelta)}`}>
                 {arrowForDelta(gpDelta)} {formatSignedPoints(gpDelta)}
               </div>
             </div>
-            <div className="text-muted-foreground self-stretch border-l" />
+            <div className="text-muted-foreground/50 self-stretch border-l" />
             <div>
-              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
                 Target
               </div>
               <div>{formatGp(item.targetGp)}</div>
-              <div className="text-xs text-muted-foreground">
+              <div className={`text-[11px] ${gpDeltaClass(vsTarget)}`}>
                 {arrowForDelta(vsTarget)} {formatSignedPoints(vsTarget)}
               </div>
             </div>
@@ -255,36 +254,38 @@ function ReviewRow({
         )}
       </td>
 
-      <td className="px-3 py-2 whitespace-nowrap">
-        <div>
+      <td className="px-2 py-1.5 whitespace-nowrap">
+        <div className="text-[13px]">
           {formatMoney(item.currentSellingPriceIncVat)} →{' '}
           {formatMoney(item.recommendedPriceIncVat)}
         </div>
-        <div className="text-xs text-muted-foreground">
+        <div className={`text-[11px] ${priceDeltaClass(priceDelta)}`}>
           {arrowForDelta(priceDelta)} {formatSignedMoney(priceDelta)}
         </div>
       </td>
 
-      <td className="px-3 py-2">
+      <td className="px-2 py-1.5">
         {!needsDecision ? (
-          <div className="text-xs text-muted-foreground">No Action Required</div>
+          <div className="text-[11px] text-muted-foreground">No Action Required</div>
         ) : readOnly ? (
           <DecisionReadout item={item} />
         ) : (
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-1">
+          <div className="space-y-1.5">
+            <div className="flex flex-nowrap gap-1">
               <Button
                 size="sm"
+                className="h-7 px-2 text-xs"
                 variant={item.decision === 'change_price' ? 'secondary' : 'outline'}
                 disabled={busy}
                 onClick={() =>
                   onDecision(item.id, 'change_price', item.recommendedPriceIncVat)
                 }
               >
-                Change Price
+                Price
               </Button>
               <Button
                 size="sm"
+                className="h-7 px-2 text-xs"
                 variant={item.decision === 'delist' ? 'secondary' : 'outline'}
                 disabled={busy}
                 onClick={() => onDecision(item.id, 'delist')}
@@ -293,6 +294,7 @@ function ReviewRow({
               </Button>
               <Button
                 size="sm"
+                className="h-7 px-2 text-xs"
                 variant={item.decision === 'no_action' ? 'secondary' : 'outline'}
                 disabled={busy}
                 onClick={() => onDecision(item.id, 'no_action')}
@@ -304,7 +306,6 @@ function ReviewRow({
               <ChangePriceEditor
                 item={item}
                 vatRate={vatRate}
-                busy={busy}
                 onCommit={(price) => onDecision(item.id, 'change_price', price)}
               />
             )}
@@ -318,35 +319,43 @@ function ReviewRow({
 function DecisionReadout({ item }: { item: PricingReviewItem }) {
   if (item.decision === 'change_price') {
     return (
-      <div className="text-xs space-y-0.5">
+      <div className="text-[11px] space-y-0.5">
         <div>Change Price</div>
         <div>Proposed {formatMoney(item.proposedPriceIncVat ?? 0)}</div>
         {item.resultingGp != null && <div>Resulting GP {formatGp(item.resultingGp)}</div>}
       </div>
     )
   }
-  if (item.decision === 'delist') return <div className="text-xs">De-list</div>
-  if (item.decision === 'no_action') return <div className="text-xs">No Action</div>
-  return <div className="text-xs text-amber-700">Undecided</div>
+  if (item.decision === 'delist') return <div className="text-[11px]">De-list</div>
+  if (item.decision === 'no_action') return <div className="text-[11px]">No Action</div>
+  return <div className="text-[11px] text-amber-700">Undecided</div>
 }
 
 function ChangePriceEditor({
   item,
   vatRate,
-  busy,
   onCommit,
 }: {
   item: PricingReviewItem
   vatRate: number
-  busy: boolean
   onCommit: (price: number) => void
 }) {
   const initial = item.proposedPriceIncVat ?? item.recommendedPriceIncVat
   const [value, setValue] = React.useState(String(initial))
+  const inputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
     setValue(String(item.proposedPriceIncVat ?? item.recommendedPriceIncVat))
   }, [item.proposedPriceIncVat, item.recommendedPriceIncVat, item.id])
+
+  React.useEffect(() => {
+    // Focus after expand so the proposed price is immediately editable.
+    const t = window.setTimeout(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [item.id])
 
   const parsed = Number(value)
   const resulting =
@@ -355,29 +364,39 @@ function ChangePriceEditor({
       : null
   const vsTarget = resulting != null ? resulting - item.targetGp : null
 
+  const commitIfChanged = () => {
+    if (!Number.isFinite(parsed) || !(parsed > 0)) return
+    if (parsed === item.proposedPriceIncVat) return
+    onCommit(parsed)
+  }
+
   return (
-    <div className="rounded border bg-background p-2 space-y-1.5 max-w-[14rem]">
-      <label className="text-xs text-muted-foreground block">
+    <div className="rounded border bg-background p-1.5 space-y-1 max-w-[11rem]">
+      <label className="text-[11px] text-muted-foreground block">
         Proposed price
         <Input
-          className="mt-1 h-8"
+          ref={inputRef}
+          className="mt-0.5 h-7 text-sm"
           type="number"
           step="0.01"
           min="0"
+          inputMode="decimal"
           value={value}
-          disabled={busy}
           onChange={(e) => setValue(e.target.value)}
-          onBlur={() => {
-            if (Number.isFinite(parsed) && parsed > 0 && parsed !== item.proposedPriceIncVat) {
-              onCommit(parsed)
+          onBlur={commitIfChanged}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commitIfChanged()
+              ;(e.target as HTMLInputElement).blur()
             }
           }}
         />
       </label>
       {resulting != null && (
-        <div className="text-xs space-y-0.5">
+        <div className="text-[11px] space-y-0.5">
           <div>Resulting GP {formatGp(resulting)}</div>
-          <div>
+          <div className={vsTarget != null ? gpDeltaClass(vsTarget) : undefined}>
             Target {formatGp(item.targetGp)}
             {vsTarget != null ? ` (${formatSignedPoints(vsTarget)})` : ''}
           </div>

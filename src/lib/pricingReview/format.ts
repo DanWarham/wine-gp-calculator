@@ -1,4 +1,4 @@
-/** Display helpers for Cost Change Review cells. Calculation values stay full precision. */
+/** Display helpers for Pricing Review cells. Calculation values stay full precision. */
 
 export function formatMoney(value: number): string {
   if (!Number.isFinite(value)) return '—'
@@ -42,4 +42,24 @@ export function arrowForDelta(value: number): '↑' | '↓' | '→' {
   if (value > 0) return '↑'
   if (value < 0) return '↓'
   return '→'
+}
+
+/** Cost increase adverse (red), decrease favourable (green). */
+export function costDeltaClass(delta: number): string {
+  if (delta > 0) return 'text-red-700'
+  if (delta < 0) return 'text-emerald-700'
+  return 'text-muted-foreground'
+}
+
+/** GP decrease / below target → red; increase / above target → green. */
+export function gpDeltaClass(delta: number): string {
+  if (delta < 0) return 'text-red-700'
+  if (delta > 0) return 'text-emerald-700'
+  return 'text-muted-foreground'
+}
+
+/** Recommended price movement stays neutral/blue — not adverse red. */
+export function priceDeltaClass(delta: number): string {
+  if (delta === 0) return 'text-muted-foreground'
+  return 'text-sky-700'
 }

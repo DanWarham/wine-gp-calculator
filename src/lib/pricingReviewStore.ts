@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabaseClient'
+import { fetchAllPagedRows } from '@/lib/supabasePagedSelect'
 import {
   calculateCostChangeItem,
   canCompleteReview,
@@ -29,6 +30,9 @@ import {
   getPreviousCompletedPricingDataImport,
   listPricingDataImports,
 } from '@/lib/pricingDataImportStore'
+
+/** Batch size for append_pricing_review_items (keeps RPC payloads manageable). */
+const REVIEW_ITEM_APPEND_BATCH = 200
 import type {
   PricingReview,
   PricingReviewDecision,
@@ -233,19 +237,57 @@ async function loadObservations(
   importId: string,
   userId: string
 ): Promise<PricingReviewStoreResult<ReviewObservation[]>> {
-  const { data, error } = await supabase
-    .from('pricing_observations')
-    .select(
-      'pricing_item_id, external_plu, fnbshop_description, micros_description, cost_ex_vat, selling_price_inc_vat, package_volume_ml, item_type, included_for_pricing'
-    )
-    .eq('import_id', importId)
-    .eq('user_id', userId)
+  // Paginate past PostgREST max_rows (1000) — silent truncation caused ~999 Full Reviews.
+  const paged = await fetchAllPagedRows<ObservationRow>((from, to) =>
+    supabase
+      .from('pricing_observations')
+      .select(
+        'pricing_item_id, external_plu, fnbshop_description, micros_description, cost_ex_vat, selling_price_inc_vat, package_volume_ml, item_type, included_for_pricing'
+      )
+      .eq('import_id', importId)
+      .eq('user_id', userId)
+      .order('external_plu', { ascending: true })
+      .range(from, to)
+  )
 
-  if (error) return { ok: false, error: error.message }
+  if (!paged.ok) return paged
   return {
     ok: true,
-    data: ((data ?? []) as ObservationRow[]).map(observationFromRow),
+    data: paged.data.map(observationFromRow),
   }
+}
+
+async function loadReviewItemRows(
+  reviewId: string,
+  userId: string
+): Promise<PricingReviewStoreResult<PricingReviewItemRow[]>> {
+  const paged = await fetchAllPagedRows<PricingReviewItemRow>((from, to) =>
+    supabase
+      .from('pricing_review_items')
+      .select('*')
+      .eq('review_id', reviewId)
+      .eq('user_id', userId)
+      .order('external_plu', { ascending: true })
+      .range(from, to)
+  )
+  return paged
+}
+
+async function appendReviewItemBatches(
+  reviewId: string,
+  items: Record<string, unknown>[]
+): Promise<PricingReviewStoreResult<{ inserted: number }>> {
+  let inserted = 0
+  for (let i = 0; i < items.length; i += REVIEW_ITEM_APPEND_BATCH) {
+    const batch = items.slice(i, i + REVIEW_ITEM_APPEND_BATCH)
+    const { data, error } = await supabase.rpc('append_pricing_review_items', {
+      p_review_id: reviewId,
+      p_items: batch,
+    })
+    if (error) return { ok: false, error: error.message }
+    inserted += Number((data as { inserted?: number } | null)?.inserted ?? batch.length)
+  }
+  return { ok: true, data: { inserted } }
 }
 
 async function loadPreviousCompletedDecisions(
@@ -267,25 +309,28 @@ async function loadPreviousCompletedDecisions(
   const reviewIds = (reviews ?? []).map((r) => r.id as string)
   if (reviewIds.length === 0) return { ok: true, data: [] }
 
-  const { data: items, error: itemError } = await supabase
-    .from('pricing_review_items')
-    .select('pricing_item_id, decision, proposed_price_inc_vat, review_id')
-    .eq('user_id', userId)
-    .in('review_id', reviewIds)
-    .in('decision', ['change_price', 'delist'])
-
-  if (itemError) return { ok: false, error: itemError.message }
-
-  // Prefer the most recent completed decision per pricing item.
-  const latestByItem = new Map<string, PreviousReviewDecisionHint>()
-  const reviewOrder = new Map(reviewIds.map((id, index) => [id, index]))
-  const ordered = [...((items ?? []) as Array<{
+  const pagedItems = await fetchAllPagedRows<{
     pricing_item_id: string
     decision: string
     proposed_price_inc_vat: number | string | null
     review_id: string
-  }>)].sort(
-    (a, b) => (reviewOrder.get(a.review_id) ?? 999) - (reviewOrder.get(b.review_id) ?? 999)
+  }>((from, to) =>
+    supabase
+      .from('pricing_review_items')
+      .select('pricing_item_id, decision, proposed_price_inc_vat, review_id')
+      .eq('user_id', userId)
+      .in('review_id', reviewIds)
+      .in('decision', ['change_price', 'delist'])
+      .range(from, to)
+  )
+
+  if (!pagedItems.ok) return pagedItems
+
+  // Prefer the most recent completed decision per pricing item.
+  const latestByItem = new Map<string, PreviousReviewDecisionHint>()
+  const reviewOrder = new Map(reviewIds.map((id, index) => [id, index]))
+  const ordered = [...pagedItems.data].sort(
+    (a, b) => (reviewOrder.get(a.review_id) ?? 9999) - (reviewOrder.get(b.review_id) ?? 9999)
   )
 
   for (const row of ordered) {
@@ -315,23 +360,31 @@ export async function listPricingReviews(
   const reviews = (data ?? []) as PricingReviewRow[]
   if (reviews.length === 0) return { ok: true, data: [] }
 
-  const { data: itemRows, error: itemError } = await supabase
-    .from('pricing_review_items')
-    .select('review_id, system_status, decision')
-    .eq('user_id', userId)
-    .in(
-      'review_id',
-      reviews.map((r) => r.id)
-    )
+  const itemRowsPaged = await fetchAllPagedRows<{
+    review_id: string
+    system_status: string
+    decision: string | null
+  }>((from, to) =>
+    supabase
+      .from('pricing_review_items')
+      .select('review_id, system_status, decision')
+      .eq('user_id', userId)
+      .in(
+        'review_id',
+        reviews.map((r) => r.id)
+      )
+      .range(from, to)
+  )
 
-  if (itemError) return { ok: false, error: itemError.message }
+  if (!itemRowsPaged.ok) return itemRowsPaged
+  const itemRows = itemRowsPaged.data
 
   const stats = new Map<
     string,
     { itemCount: number; requiresAttentionCount: number; undecidedAttentionCount: number }
   >()
-  for (const row of itemRows ?? []) {
-    const reviewId = row.review_id as string
+  for (const row of itemRows) {
+    const reviewId = row.review_id
     const current = stats.get(reviewId) ?? {
       itemCount: 0,
       requiresAttentionCount: 0,
@@ -385,13 +438,8 @@ export async function getPricingReview(
 
   const review = rowToReview(data as PricingReviewRow)
 
-  const { data: items, error: itemError } = await supabase
-    .from('pricing_review_items')
-    .select('*')
-    .eq('review_id', reviewId)
-    .eq('user_id', userId)
-
-  if (itemError) return { ok: false, error: itemError.message }
+  const itemsLoaded = await loadReviewItemRows(reviewId, userId)
+  if (!itemsLoaded.ok) return itemsLoaded
 
   const { data: snapshotRow, error: snapshotError } = await supabase
     .from('pricing_configuration_snapshots')
@@ -406,9 +454,7 @@ export async function getPricingReview(
     ok: true,
     data: {
       ...review,
-      items: sortReviewItemsByPlu(
-        ((items ?? []) as PricingReviewItemRow[]).map(rowToReviewItem)
-      ),
+      items: sortReviewItemsByPlu(itemsLoaded.data.map(rowToReviewItem)),
       snapshot: snapshotRow
         ? rowToSnapshot(snapshotRow as PricingConfigurationSnapshotRow)
         : null,
@@ -549,6 +595,31 @@ export async function createCostChangeReview(
 
   const sorted = sortReviewItemsByPlu(calculatedItems)
 
+  const itemPayloads = sorted.map((item) => ({
+    pricing_item_id: item.pricingItemId,
+    external_plu: item.externalPlu,
+    description: item.description ?? '',
+    bottle_size_ml: String(item.bottleSizeMl),
+    previous_cost_ex_vat: String(item.previousCostExVat),
+    current_cost_ex_vat: String(item.currentCostExVat),
+    current_selling_price_inc_vat: String(item.currentSellingPriceIncVat),
+    old_gp: String(item.oldGp),
+    current_gp: String(item.currentGp),
+    target_gp: String(item.targetGp),
+    recommended_price_inc_vat: String(item.recommendedPriceIncVat),
+    system_status: item.systemStatus,
+    decision: '',
+    proposed_price_inc_vat: '',
+    resulting_gp: '',
+    previous_change_price_pending: item.previousChangePricePending,
+    previous_proposed_price_inc_vat:
+      item.previousProposedPriceIncVat == null
+        ? ''
+        : String(item.previousProposedPriceIncVat),
+    previous_delist_pending: item.previousDelistPending,
+  }))
+
+  // Create draft shell first, then append items in pages (avoids PostgREST/payload caps).
   const payload = {
     review_type: 'cost_change',
     current_import_id: pair.latest.id,
@@ -571,29 +642,7 @@ export async function createCostChangeReview(
         selling_price_inc_vat: item.sellingPriceIncVat,
       })),
     },
-    items: sorted.map((item) => ({
-      pricing_item_id: item.pricingItemId,
-      external_plu: item.externalPlu,
-      description: item.description ?? '',
-      bottle_size_ml: String(item.bottleSizeMl),
-      previous_cost_ex_vat: String(item.previousCostExVat),
-      current_cost_ex_vat: String(item.currentCostExVat),
-      current_selling_price_inc_vat: String(item.currentSellingPriceIncVat),
-      old_gp: String(item.oldGp),
-      current_gp: String(item.currentGp),
-      target_gp: String(item.targetGp),
-      recommended_price_inc_vat: String(item.recommendedPriceIncVat),
-      system_status: item.systemStatus,
-      decision: '',
-      proposed_price_inc_vat: '',
-      resulting_gp: '',
-      previous_change_price_pending: item.previousChangePricePending,
-      previous_proposed_price_inc_vat:
-        item.previousProposedPriceIncVat == null
-          ? ''
-          : String(item.previousProposedPriceIncVat),
-      previous_delist_pending: item.previousDelistPending,
-    })),
+    items: [],
   }
 
   const { data, error } = await supabase.rpc('commit_cost_change_review', {
@@ -603,6 +652,9 @@ export async function createCostChangeReview(
   if (error) return { ok: false, error: error.message }
 
   const result = data as { review_id: string }
+  const appended = await appendReviewItemBatches(result.review_id, itemPayloads)
+  if (!appended.ok) return { ok: false, error: appended.error }
+
   return {
     ok: true,
     data: { reviewId: result.review_id, reusedExistingDraft: false },
@@ -688,33 +740,35 @@ export async function createFullPricingReview(
 
   const sorted = sortReviewItemsByPlu(calculatedItems)
 
+  const itemPayloads = sorted.map((item) => ({
+    pricing_item_id: item.pricingItemId,
+    external_plu: item.externalPlu,
+    description: item.description ?? '',
+    bottle_size_ml: String(item.bottleSizeMl),
+    current_cost_ex_vat: String(item.currentCostExVat),
+    current_selling_price_inc_vat: String(item.currentSellingPriceIncVat),
+    current_gp: String(item.currentGp),
+    target_gp: String(item.targetGp),
+    recommended_price_inc_vat: String(item.recommendedPriceIncVat),
+    system_status: item.systemStatus,
+    decision: '',
+    proposed_price_inc_vat: '',
+    resulting_gp: '',
+    previous_change_price_pending: item.previousChangePricePending,
+    previous_proposed_price_inc_vat:
+      item.previousProposedPriceIncVat == null
+        ? ''
+        : String(item.previousProposedPriceIncVat),
+    previous_delist_pending: item.previousDelistPending,
+  }))
+
   const payload = {
     review_type: 'full',
     current_import_id: latest.id,
     pricing_configuration_snapshot_id: snapshot.data.id,
     tolerance_gp_points: tolerance,
     presence_summary: { new_items: [], missing_items: [] },
-    items: sorted.map((item) => ({
-      pricing_item_id: item.pricingItemId,
-      external_plu: item.externalPlu,
-      description: item.description ?? '',
-      bottle_size_ml: String(item.bottleSizeMl),
-      current_cost_ex_vat: String(item.currentCostExVat),
-      current_selling_price_inc_vat: String(item.currentSellingPriceIncVat),
-      current_gp: String(item.currentGp),
-      target_gp: String(item.targetGp),
-      recommended_price_inc_vat: String(item.recommendedPriceIncVat),
-      system_status: item.systemStatus,
-      decision: '',
-      proposed_price_inc_vat: '',
-      resulting_gp: '',
-      previous_change_price_pending: item.previousChangePricePending,
-      previous_proposed_price_inc_vat:
-        item.previousProposedPriceIncVat == null
-          ? ''
-          : String(item.previousProposedPriceIncVat),
-      previous_delist_pending: item.previousDelistPending,
-    })),
+    items: [],
   }
 
   const { data, error } = await supabase.rpc('commit_full_pricing_review', {
@@ -724,6 +778,9 @@ export async function createFullPricingReview(
   if (error) return { ok: false, error: error.message }
 
   const result = data as { review_id: string }
+  const appended = await appendReviewItemBatches(result.review_id, itemPayloads)
+  if (!appended.ok) return { ok: false, error: appended.error }
+
   return {
     ok: true,
     data: { reviewId: result.review_id, reusedExistingDraft: false },

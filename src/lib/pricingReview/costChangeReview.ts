@@ -287,12 +287,23 @@ export function sortReviewItemsByPlu<T extends { externalPlu: string }>(items: T
   }))
 }
 
-export function selectLatestAndPreviousImports<T extends { id: string; importedAt: string }>(
-  completedImportsNewestFirst: T[]
-): { latest: T; previous: T } | null {
-  if (completedImportsNewestFirst.length < 2) return null
-  return {
-    latest: completedImportsNewestFirst[0],
-    previous: completedImportsNewestFirst[1],
-  }
+/**
+ * Cost Change pair: latest import overall, previous = latest import from the
+ * previous available data month (not merely previous upload timestamp).
+ */
+export function selectLatestAndPreviousImports<
+  T extends { id: string; importedAt: string; dataMonth: string },
+>(completedImports: T[]): { latest: T; previous: T } | null {
+  if (completedImports.length === 0) return null
+
+  const sorted = [...completedImports].sort((a, b) => {
+    const monthCmp = b.dataMonth.localeCompare(a.dataMonth)
+    if (monthCmp !== 0) return monthCmp
+    return b.importedAt.localeCompare(a.importedAt)
+  })
+
+  const latest = sorted[0]
+  const previous = sorted.find((row) => row.dataMonth < latest.dataMonth)
+  if (!previous) return null
+  return { latest, previous }
 }
