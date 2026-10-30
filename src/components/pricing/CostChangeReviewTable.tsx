@@ -12,11 +12,16 @@ import {
   formatSignedPoints,
 } from '@/lib/pricingReview/format'
 import { resultingGpForProposedPrice } from '@/lib/pricingReview/costChangeReview'
-import type { PricingReviewDecision, PricingReviewItem } from '@/types/pricingReviews'
+import type {
+  PricingReviewDecision,
+  PricingReviewItem,
+  PricingReviewType,
+} from '@/types/pricingReviews'
 
 export type ReviewWorkingFilter =
   | 'requires_attention'
   | 'all_changes'
+  | 'all_wines'
   | 'cost_increases'
   | 'cost_decreases'
 
@@ -24,6 +29,7 @@ export type ReviewDecisionFilter = 'all' | 'undecided' | PricingReviewDecision
 
 interface CostChangeReviewTableProps {
   items: PricingReviewItem[]
+  reviewType: PricingReviewType
   vatRate: number
   readOnly: boolean
   workingFilter: ReviewWorkingFilter
@@ -46,9 +52,15 @@ function matchesSearch(item: PricingReviewItem, search: string): boolean {
   )
 }
 
-function matchesWorkingFilter(item: PricingReviewItem, filter: ReviewWorkingFilter): boolean {
-  const delta = item.currentCostExVat - item.previousCostExVat
+function matchesWorkingFilter(
+  item: PricingReviewItem,
+  filter: ReviewWorkingFilter,
+  reviewType: PricingReviewType
+): boolean {
   if (filter === 'requires_attention') return item.systemStatus === 'requires_attention'
+  if (filter === 'all_wines' || filter === 'all_changes') return true
+  if (reviewType === 'full') return true
+  const delta = item.currentCostExVat - item.previousCostExVat
   if (filter === 'cost_increases') return delta > 0
   if (filter === 'cost_decreases') return delta < 0
   return true
@@ -64,6 +76,7 @@ function matchesDecisionFilter(item: PricingReviewItem, filter: ReviewDecisionFi
 
 export function CostChangeReviewTable({
   items,
+  reviewType,
   vatRate,
   readOnly,
   workingFilter,
@@ -75,14 +88,16 @@ export function CostChangeReviewTable({
   const visible = items.filter(
     (item) =>
       matchesSearch(item, search) &&
-      matchesWorkingFilter(item, workingFilter) &&
+      matchesWorkingFilter(item, workingFilter, reviewType) &&
       matchesDecisionFilter(item, decisionFilter)
   )
 
   if (visible.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-6 text-center">
-        No cost changes match the current filters.
+        {reviewType === 'full'
+          ? 'No wines match the current filters.'
+          : 'No cost changes match the current filters.'}
       </p>
     )
   }
@@ -104,6 +119,7 @@ export function CostChangeReviewTable({
             <ReviewRow
               key={item.id}
               item={item}
+              reviewType={reviewType}
               vatRate={vatRate}
               readOnly={readOnly}
               busy={busyItemId === item.id}
@@ -118,12 +134,14 @@ export function CostChangeReviewTable({
 
 function ReviewRow({
   item,
+  reviewType,
   vatRate,
   readOnly,
   busy,
   onDecision,
 }: {
   item: PricingReviewItem
+  reviewType: PricingReviewType
   vatRate: number
   readOnly: boolean
   busy: boolean
@@ -133,6 +151,7 @@ function ReviewRow({
     proposedPriceIncVat?: number | null
   ) => void
 }) {
+  const isFull = reviewType === 'full'
   const costDelta = item.currentCostExVat - item.previousCostExVat
   const costPct =
     Math.abs(item.previousCostExVat) > 1e-9
@@ -153,7 +172,7 @@ function ReviewRow({
         <div className="text-xs text-muted-foreground">PLU {item.externalPlu}</div>
         {item.previousChangePricePending && (
           <div className="text-xs text-amber-700 mt-1">
-            Previous action not yet reflected
+            Previous price-change action not yet reflected
             {item.previousProposedPriceIncVat != null
               ? ` · Change price → ${formatMoney(item.previousProposedPriceIncVat)}`
               : ''}
@@ -167,39 +186,73 @@ function ReviewRow({
       </td>
 
       <td className="px-3 py-2 whitespace-nowrap">
-        <div>
-          {formatMoney(item.previousCostExVat)} → {formatMoney(item.currentCostExVat)}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {arrowForDelta(costDelta)} {formatSignedMoney(costDelta)}
-          {costPct != null ? ` · ${formatSignedPercent(costPct)}` : ''}
-        </div>
+        {isFull ? (
+          <>
+            <div>{formatMoney(item.currentCostExVat)}</div>
+            <div className="text-xs text-muted-foreground">
+              {Number.isInteger(item.bottleSizeMl)
+                ? `${item.bottleSizeMl}ml`
+                : `${item.bottleSizeMl}ml`}
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              {formatMoney(item.previousCostExVat)} → {formatMoney(item.currentCostExVat)}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {arrowForDelta(costDelta)} {formatSignedMoney(costDelta)}
+              {costPct != null ? ` · ${formatSignedPercent(costPct)}` : ''}
+            </div>
+          </>
+        )}
       </td>
 
       <td className="px-3 py-2">
-        <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 gap-y-0.5 items-start">
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Old → Current
-            </div>
+        {isFull ? (
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 gap-y-0.5 items-start">
             <div>
-              {formatGp(item.oldGp)} → {formatGp(item.currentGp)}
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Current
+              </div>
+              <div>{formatGp(item.currentGp)}</div>
             </div>
-            <div className="text-xs text-muted-foreground">
-              {arrowForDelta(gpDelta)} {formatSignedPoints(gpDelta)}
+            <div className="text-muted-foreground self-stretch border-l" />
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Target
+              </div>
+              <div>{formatGp(item.targetGp)}</div>
+              <div className="text-xs text-muted-foreground">
+                {arrowForDelta(vsTarget)} {formatSignedPoints(vsTarget)}
+              </div>
             </div>
           </div>
-          <div className="text-muted-foreground self-stretch border-l" />
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Target
+        ) : (
+          <div className="grid grid-cols-[1fr_auto_1fr] gap-x-2 gap-y-0.5 items-start">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Old → Current
+              </div>
+              <div>
+                {formatGp(item.oldGp)} → {formatGp(item.currentGp)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {arrowForDelta(gpDelta)} {formatSignedPoints(gpDelta)}
+              </div>
             </div>
-            <div>{formatGp(item.targetGp)}</div>
-            <div className="text-xs text-muted-foreground">
-              {arrowForDelta(vsTarget)} {formatSignedPoints(vsTarget)}
+            <div className="text-muted-foreground self-stretch border-l" />
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Target
+              </div>
+              <div>{formatGp(item.targetGp)}</div>
+              <div className="text-xs text-muted-foreground">
+                {arrowForDelta(vsTarget)} {formatSignedPoints(vsTarget)}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </td>
 
       <td className="px-3 py-2 whitespace-nowrap">

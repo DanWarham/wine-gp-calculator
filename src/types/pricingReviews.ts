@@ -1,8 +1,8 @@
-/** Canonical Pricing Review domain types (Stage 6B Cost Change Review). */
+/** Canonical Pricing Review domain types (Stage 6B Cost Change + Stage 6C Full). */
 
 import type { PricingConfigurationSnapshot } from '@/types/pricingConfigurations'
 
-export type PricingReviewType = 'cost_change'
+export type PricingReviewType = 'cost_change' | 'full'
 
 export type PricingReviewStatus = 'draft' | 'completed'
 
@@ -10,7 +10,12 @@ export type PricingReviewSystemStatus = 'requires_attention' | 'no_action_requir
 
 export type PricingReviewDecision = 'change_price' | 'delist' | 'no_action'
 
-export const DEFAULT_COST_CHANGE_TOLERANCE_GP_POINTS = 1.0
+/** Default GP percentage-point tolerance for Cost Change and Full Pricing Reviews. */
+export const DEFAULT_PRICING_REVIEW_TOLERANCE_GP_POINTS = 1.0
+
+/** @deprecated Prefer DEFAULT_PRICING_REVIEW_TOLERANCE_GP_POINTS */
+export const DEFAULT_COST_CHANGE_TOLERANCE_GP_POINTS =
+  DEFAULT_PRICING_REVIEW_TOLERANCE_GP_POINTS
 
 export interface PricingReviewPresenceItem {
   pricingItemId: string
@@ -54,7 +59,8 @@ export interface PricingReview {
   id: string
   reviewType: PricingReviewType
   currentImportId: string
-  previousImportId: string
+  /** Null for Full Pricing Reviews. */
+  previousImportId: string | null
   pricingConfigurationSnapshotId: string
   toleranceGpPoints: number
   status: PricingReviewStatus
@@ -74,7 +80,7 @@ export interface PricingReviewListItem {
   reviewType: PricingReviewType
   status: PricingReviewStatus
   currentImportId: string
-  previousImportId: string
+  previousImportId: string | null
   toleranceGpPoints: number
   createdAt: string
   completedAt: string | null

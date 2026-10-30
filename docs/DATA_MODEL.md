@@ -25,6 +25,7 @@ If migrations and live state disagree, **investigate the drift** — do not sile
 | `20261027101302_drop_legacy_gp_settings_pricing_policy.sql` | Drop superseded `gp_settings` + `pricing_policy` |
 | `20261029144815_create_pricing_data_import.sql` | Pricing data import tables + commit/previous RPCs (Stage 6A) |
 | `20261029161358_create_pricing_reviews.sql` | Cost Change Review tables + commit/complete RPCs (Stage 6B) |
+| `20261029223152_extend_pricing_reviews_full_and_actions.sql` | Full Pricing Review type + commit RPC (Stage 6C) |
 
 **Documentation authority:** Repository/database evidence determines current schema. Canonical intended architecture: [`05-project-architecture.md`](./05-project-architecture.md). Canonical current overview: [`06-current-implementation.md`](./06-current-implementation.md).
 
@@ -104,7 +105,8 @@ Controlled RPCs (EXECUTE for `authenticated` only; not anon):
 - `commit_pricing_data_import(jsonb)` (Stage 6A atomic import write)
 - `get_previous_completed_pricing_data_import(uuid)` (Stage 6B foundation)
 - `commit_cost_change_review(jsonb)` (Stage 6B draft create)
-- `complete_pricing_review(uuid)` (Stage 6B completion)
+- `commit_full_pricing_review(jsonb)` (Stage 6C Full Pricing Review draft create)
+- `complete_pricing_review(uuid)` (Stage 6B/6C completion)
 
 ---
 
@@ -181,19 +183,19 @@ Writes are via SECURITY DEFINER `commit_pricing_data_import(jsonb)` only. Client
 
 ---
 
-## Pricing reviews (Stage 6B)
+## Pricing reviews (Stage 6B / 6C)
 
-Cost Change Reviews compare two completed pricing imports under a captured Current Pricing Configuration snapshot.
+Cost Change Reviews compare two completed pricing imports. Full Pricing Reviews examine every eligible full bottle in the latest completed import. Both capture a Current Pricing Configuration snapshot and store `tolerance_gp_points` for reproducibility.
 
 ### `public.pricing_reviews`
 
-One review event: `review_type = cost_change`, `current_import_id` / `previous_import_id`, snapshot FK, stored `tolerance_gp_points`, `status` ∈ `draft` | `completed`, and `presence_summary` JSONB for new/missing items. At most one draft per user+import pair.
+One review event: `review_type` ∈ `cost_change` | `full`, `current_import_id`, optional `previous_import_id` (required for `cost_change`, null for `full`), snapshot FK, stored `tolerance_gp_points`, `status` ∈ `draft` | `completed`, and `presence_summary` JSONB (used by cost-change for new/missing items). At most one draft Cost Change per user+import pair; at most one draft Full Review per user+current import.
 
 ### `public.pricing_review_items`
 
-Per changed full-bottle row: previous/current cost, current Micros selling price, old/current/target GP, recommended price, system status, optional decision / proposed price / resulting GP, and previous unresolved-action flags. Historical values remain fixed after creation.
+Per reviewed full-bottle row: previous/current cost (Full Review stores current cost in both for NOT NULL columns), current Micros selling price, old/current/target GP, recommended price, system status, optional decision / proposed price / resulting GP, and previous unresolved-action flags. Historical values remain fixed after creation. Completed reviews can generate a printable Action Document in the app (`/pricing-reviews/[id]/actions`) — no separate action-task tables.
 
-Writes: draft create via `commit_cost_change_review(jsonb)`; completion via `complete_pricing_review(uuid)`; draft decision/tolerance updates via authenticated column UPDATE + RLS.
+Writes: draft create via `commit_cost_change_review(jsonb)` or `commit_full_pricing_review(jsonb)`; completion via `complete_pricing_review(uuid)`; draft decision/tolerance updates via authenticated column UPDATE + RLS.
 
 ---
 
@@ -211,4 +213,4 @@ Same canonical Rule model (`src/types/rules.ts`): `all_gp`, `less_than`, `betwee
 | `PricingPolicy` | `src/lib/pricing/types.ts` |
 | `PricingConfiguration` | `src/types/pricingConfigurations.ts` |
 | `ServingSize` | `src/types/servingSizes.ts` |
-| Pricing Review / Cost Change | `src/types/pricingReviews.ts` |
+| Pricing Review (Cost Change + Full) | `src/types/pricingReviews.ts` |

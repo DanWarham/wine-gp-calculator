@@ -11,6 +11,15 @@ import {
   type ReviewObservation,
 } from '@/lib/pricingReview/costChangeReview'
 import {
+  calculateFullReviewItem,
+  selectFullReviewObservations,
+  selectLatestCompletedImport,
+} from '@/lib/pricingReview/fullPricingReview'
+import {
+  buildActionDocument,
+  type ActionDocument,
+} from '@/lib/pricingReview/actionDocument'
+import {
   capturePricingConfigurationSnapshot,
   getOrCreateCurrentPricingConfiguration,
   rowToSnapshot,
@@ -28,9 +37,10 @@ import type {
   PricingReviewPresenceSummary,
   PricingReviewStatus,
   PricingReviewSystemStatus,
+  PricingReviewType,
   PricingReviewWithItems,
 } from '@/types/pricingReviews'
-import { DEFAULT_COST_CHANGE_TOLERANCE_GP_POINTS } from '@/types/pricingReviews'
+import { DEFAULT_PRICING_REVIEW_TOLERANCE_GP_POINTS } from '@/types/pricingReviews'
 
 export type PricingReviewStoreResult<T> =
   | { ok: true; data: T }
@@ -41,7 +51,7 @@ interface PricingReviewRow {
   user_id: string
   review_type: string
   current_import_id: string
-  previous_import_id: string
+  previous_import_id: string | null
   pricing_configuration_snapshot_id: string
   tolerance_gp_points: number | string
   status: string
@@ -138,16 +148,26 @@ function isDecision(value: string | null): value is PricingReviewDecision | null
   )
 }
 
+function isReviewType(value: string): value is PricingReviewType {
+  return value === 'cost_change' || value === 'full'
+}
+
 function rowToReview(row: PricingReviewRow): PricingReview {
-  if (row.review_type !== 'cost_change') {
+  if (!isReviewType(row.review_type)) {
     throw new Error(`Unsupported review type: ${row.review_type}`)
   }
   if (row.status !== 'draft' && row.status !== 'completed') {
     throw new Error(`Invalid review status: ${row.status}`)
   }
+  if (row.review_type === 'cost_change' && row.previous_import_id == null) {
+    throw new Error('Cost Change Review is missing previous_import_id.')
+  }
+  if (row.review_type === 'full' && row.previous_import_id != null) {
+    throw new Error('Full Pricing Review must not have previous_import_id.')
+  }
   return {
     id: row.id,
-    reviewType: 'cost_change',
+    reviewType: row.review_type,
     currentImportId: row.current_import_id,
     previousImportId: row.previous_import_id,
     pricingConfigurationSnapshotId: row.pricing_configuration_snapshot_id,
@@ -232,12 +252,14 @@ async function loadPreviousCompletedDecisions(
   userId: string,
   beforeCreatedAt: string
 ): Promise<PricingReviewStoreResult<PreviousReviewDecisionHint[]>> {
+  // Include both cost_change and full completed reviews — unresolved actions
+  // apply across review types.
   const { data: reviews, error: reviewError } = await supabase
     .from('pricing_reviews')
     .select('id')
     .eq('user_id', userId)
     .eq('status', 'completed')
-    .eq('review_type', 'cost_change')
+    .in('review_type', ['cost_change', 'full'])
     .lt('created_at', beforeCreatedAt)
     .order('created_at', { ascending: false })
 
@@ -404,8 +426,27 @@ export async function findExistingDraftForImports(
     .select('*')
     .eq('user_id', userId)
     .eq('status', 'draft')
+    .eq('review_type', 'cost_change')
     .eq('current_import_id', currentImportId)
     .eq('previous_import_id', previousImportId)
+    .maybeSingle()
+
+  if (error) return { ok: false, error: error.message }
+  if (!data) return { ok: true, data: null }
+  return { ok: true, data: rowToReview(data as PricingReviewRow) }
+}
+
+export async function findExistingDraftFullReview(
+  userId: string,
+  currentImportId: string
+): Promise<PricingReviewStoreResult<PricingReview | null>> {
+  const { data, error } = await supabase
+    .from('pricing_reviews')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'draft')
+    .eq('review_type', 'full')
+    .eq('current_import_id', currentImportId)
     .maybeSingle()
 
   if (error) return { ok: false, error: error.message }
@@ -488,7 +529,7 @@ export async function createCostChangeReview(
   if (!previousDecisions.ok) return { ok: false, error: previousDecisions.error }
 
   const tolerance =
-    options?.toleranceGpPoints ?? DEFAULT_COST_CHANGE_TOLERANCE_GP_POINTS
+    options?.toleranceGpPoints ?? DEFAULT_PRICING_REVIEW_TOLERANCE_GP_POINTS
 
   const calculatedItems = []
   for (const pairObs of detected.changed) {
@@ -566,6 +607,164 @@ export async function createCostChangeReview(
     ok: true,
     data: { reviewId: result.review_id, reusedExistingDraft: false },
   }
+}
+
+/**
+ * Create a Full Pricing Review from the latest completed import and Current Pricing.
+ */
+export async function createFullPricingReview(
+  userId: string,
+  options?: { toleranceGpPoints?: number }
+): Promise<
+  PricingReviewStoreResult<{
+    reviewId: string
+    reusedExistingDraft: boolean
+    insufficientImports?: boolean
+  }>
+> {
+  const listed = await listPricingDataImports(userId)
+  if (!listed.ok) return { ok: false, error: listed.error }
+
+  const latest = selectLatestCompletedImport(listed.data)
+  if (!latest) {
+    return {
+      ok: true,
+      data: {
+        reviewId: '',
+        reusedExistingDraft: false,
+        insufficientImports: true,
+      },
+    }
+  }
+
+  const existing = await findExistingDraftFullReview(userId, latest.id)
+  if (!existing.ok) return { ok: false, error: existing.error }
+  if (existing.data) {
+    return {
+      ok: true,
+      data: { reviewId: existing.data.id, reusedExistingDraft: true },
+    }
+  }
+
+  const current = await getOrCreateCurrentPricingConfiguration(userId)
+  if (!current.ok) return { ok: false, error: current.error }
+  if (current.data.rules.length === 0) {
+    return {
+      ok: false,
+      error: 'Current Pricing must have a valid GP rule set before creating a Full Pricing Review.',
+    }
+  }
+
+  const snapshot = await capturePricingConfigurationSnapshot(current.data.id)
+  if (!snapshot.ok) return { ok: false, error: snapshot.error }
+
+  const currentObs = await loadObservations(latest.id, userId)
+  if (!currentObs.ok) return { ok: false, error: currentObs.error }
+
+  const eligible = selectFullReviewObservations(currentObs.data)
+  const previousDecisions = await loadPreviousCompletedDecisions(
+    userId,
+    new Date().toISOString()
+  )
+  if (!previousDecisions.ok) return { ok: false, error: previousDecisions.error }
+
+  const tolerance =
+    options?.toleranceGpPoints ?? DEFAULT_PRICING_REVIEW_TOLERANCE_GP_POINTS
+
+  const calculatedItems = []
+  for (const observation of eligible) {
+    const calculated = calculateFullReviewItem({
+      current: observation,
+      rules: snapshot.data.rules,
+      pricingPolicy: snapshot.data.pricingPolicy,
+      toleranceGpPoints: tolerance,
+      previousDecisions: previousDecisions.data,
+    })
+    if ('ok' in calculated && calculated.ok === false) {
+      return { ok: false, error: calculated.error }
+    }
+    calculatedItems.push(calculated as Exclude<typeof calculated, { ok: false; error: string }>)
+  }
+
+  const sorted = sortReviewItemsByPlu(calculatedItems)
+
+  const payload = {
+    review_type: 'full',
+    current_import_id: latest.id,
+    pricing_configuration_snapshot_id: snapshot.data.id,
+    tolerance_gp_points: tolerance,
+    presence_summary: { new_items: [], missing_items: [] },
+    items: sorted.map((item) => ({
+      pricing_item_id: item.pricingItemId,
+      external_plu: item.externalPlu,
+      description: item.description ?? '',
+      bottle_size_ml: String(item.bottleSizeMl),
+      current_cost_ex_vat: String(item.currentCostExVat),
+      current_selling_price_inc_vat: String(item.currentSellingPriceIncVat),
+      current_gp: String(item.currentGp),
+      target_gp: String(item.targetGp),
+      recommended_price_inc_vat: String(item.recommendedPriceIncVat),
+      system_status: item.systemStatus,
+      decision: '',
+      proposed_price_inc_vat: '',
+      resulting_gp: '',
+      previous_change_price_pending: item.previousChangePricePending,
+      previous_proposed_price_inc_vat:
+        item.previousProposedPriceIncVat == null
+          ? ''
+          : String(item.previousProposedPriceIncVat),
+      previous_delist_pending: item.previousDelistPending,
+    })),
+  }
+
+  const { data, error } = await supabase.rpc('commit_full_pricing_review', {
+    p_payload: payload,
+  })
+
+  if (error) return { ok: false, error: error.message }
+
+  const result = data as { review_id: string }
+  return {
+    ok: true,
+    data: { reviewId: result.review_id, reusedExistingDraft: false },
+  }
+}
+
+export async function getPricingReviewActionDocument(
+  reviewId: string,
+  userId: string
+): Promise<PricingReviewStoreResult<ActionDocument>> {
+  const loaded = await getPricingReview(reviewId, userId)
+  if (!loaded.ok) return { ok: false, error: loaded.error }
+
+  const review = loaded.data
+  if (review.status !== 'completed') {
+    return { ok: false, error: 'Only completed reviews can generate an Action Document.' }
+  }
+
+  const { data: importRow, error: importError } = await supabase
+    .from('pricing_data_imports')
+    .select('imported_at')
+    .eq('id', review.currentImportId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (importError) return { ok: false, error: importError.message }
+
+  const built = buildActionDocument({
+    reviewType: review.reviewType,
+    reviewDate: review.completedAt ?? review.createdAt,
+    pricingDataImportDate: (importRow?.imported_at as string | undefined) ?? null,
+    configurationName: review.snapshot?.sourceConfigurationName ?? null,
+    items: review.items,
+    status: review.status,
+  })
+
+  if ('ok' in built && built.ok === false) {
+    return { ok: false, error: built.error }
+  }
+
+  return { ok: true, data: built as ActionDocument }
 }
 
 export async function updateReviewTolerance(

@@ -6,9 +6,11 @@ import { AppNav } from '@/components/AppNav'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/components/toast-provider'
+import { reviewTypeLabel } from '@/lib/pricingReview/actionDocument'
 import { listPricingDataImports } from '@/lib/pricingDataImportStore'
 import {
   createCostChangeReview,
+  createFullPricingReview,
   listPricingReviews,
 } from '@/lib/pricingReviewStore'
 import { supabase } from '@/lib/supabaseClient'
@@ -20,7 +22,8 @@ export default function PricingReviewsPage() {
 
   const [userId, setUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
+  const [busyCost, setBusyCost] = useState(false)
+  const [busyFull, setBusyFull] = useState(false)
   const [reviews, setReviews] = useState<PricingReviewListItem[]>([])
   const [importCount, setImportCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -52,12 +55,12 @@ export default function PricingReviewsPage() {
     void load()
   }, [router])
 
-  const onCreate = async () => {
+  const onCreateCostChange = async () => {
     if (!userId) return
-    setBusy(true)
+    setBusyCost(true)
     setError(null)
     const created = await createCostChangeReview(userId)
-    setBusy(false)
+    setBusyCost(false)
     if (!created.ok) {
       setError(created.error)
       showToast(created.error)
@@ -77,6 +80,31 @@ export default function PricingReviewsPage() {
     router.push(`/pricing-reviews/${created.data.reviewId}`)
   }
 
+  const onCreateFull = async () => {
+    if (!userId) return
+    setBusyFull(true)
+    setError(null)
+    const created = await createFullPricingReview(userId)
+    setBusyFull(false)
+    if (!created.ok) {
+      setError(created.error)
+      showToast(created.error)
+      return
+    }
+    if (created.data.insufficientImports) {
+      setError(
+        'A Full Pricing Review needs at least one completed pricing-data import. Import pricing data first.'
+      )
+      return
+    }
+    if (created.data.reusedExistingDraft) {
+      showToast('Opened existing draft Full Pricing Review.')
+    } else {
+      showToast('Full Pricing Review created.')
+    }
+    router.push(`/pricing-reviews/${created.data.reviewId}`)
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -86,6 +114,8 @@ export default function PricingReviewsPage() {
     )
   }
 
+  const busy = busyCost || busyFull
+
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto">
       <AppNav active="pricing-reviews" />
@@ -94,13 +124,18 @@ export default function PricingReviewsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Pricing Reviews</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Cost Change Review compares the latest completed pricing import with the previous
-            one using Current Pricing.
+            Cost Change Reviews compare the latest two imports. Full Pricing Reviews examine
+            every eligible bottle in the latest import against Current Pricing.
           </p>
         </div>
-        <Button onClick={onCreate} disabled={busy}>
-          {busy ? 'Creating…' : 'New Cost Change Review'}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={onCreateCostChange} disabled={busy}>
+            {busyCost ? 'Creating…' : 'New Cost Change Review'}
+          </Button>
+          <Button onClick={onCreateFull} disabled={busy}>
+            {busyFull ? 'Creating…' : 'New Full Pricing Review'}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -109,15 +144,15 @@ export default function PricingReviewsPage() {
         </div>
       )}
 
-      {importCount < 2 && (
+      {importCount < 1 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Not ready yet</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground space-y-2">
             <p>
-              A Cost Change Review cannot yet be created. Complete at least two pricing-data
-              imports first ({importCount} completed so far).
+              Pricing Reviews need at least one completed pricing-data import ({importCount}{' '}
+              completed so far). Cost Change Reviews need two.
             </p>
             <Button variant="outline" onClick={() => router.push('/pricing-data')}>
               Go to Pricing Data
@@ -149,7 +184,7 @@ export default function PricingReviewsPage() {
                 <tbody>
                   {reviews.map((review) => (
                     <tr key={review.id} className="border-b">
-                      <td className="py-2 pr-3">Cost Change</td>
+                      <td className="py-2 pr-3">{reviewTypeLabel(review.reviewType)}</td>
                       <td className="py-2 pr-3 capitalize">{review.status}</td>
                       <td className="py-2 pr-3">
                         {new Date(review.createdAt).toLocaleString()}
