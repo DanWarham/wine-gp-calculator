@@ -181,17 +181,18 @@ describe('Stage 6C Full Pricing Review + Action Document smoke', () => {
       const reviewId = created.data.reviewId
       createdIds.fullReviewId = reviewId
 
-      let loaded = await getPricingReview(reviewId, userId)
+      const loaded = await getPricingReview(reviewId, userId)
       expect(loaded.ok).toBe(true)
       if (!loaded.ok) throw new Error(loaded.error)
+      const review = loaded.data
 
-      expect(loaded.data.reviewType).toBe('full')
-      expect(loaded.data.previousImportId).toBeNull()
-      expect(loaded.data.currentImportId).toBe(importId)
-      expect(loaded.data.status).toBe('draft')
-      expect(loaded.data.toleranceGpPoints).toBe(1)
+      expect(review.reviewType).toBe('full')
+      expect(review.previousImportId).toBeNull()
+      expect(review.currentImportId).toBe(importId)
+      expect(review.status).toBe('draft')
+      expect(review.toleranceGpPoints).toBe(1)
 
-      const plus = loaded.data.items.map((i) => i.externalPlu)
+      const plus = review.items.map((i) => i.externalPlu)
       expect(plus).toEqual(
         expect.arrayContaining([
           SMOKE_PLUS.attentionA,
@@ -204,19 +205,21 @@ describe('Stage 6C Full Pricing Review + Action Document smoke', () => {
       // PLU ascending
       expect(plus).toEqual([...plus].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })))
 
-      const attention = loaded.data.items.filter((i) => i.systemStatus === 'requires_attention')
-      const noActionRequired = loaded.data.items.filter(
+      const attention = review.items.filter((i) => i.systemStatus === 'requires_attention')
+      const noActionRequired = review.items.filter(
         (i) => i.systemStatus === 'no_action_required'
       )
       expect(attention.length).toBeGreaterThanOrEqual(4)
       expect(noActionRequired.some((i) => i.externalPlu === SMOKE_PLUS.okWine)).toBe(true)
 
       // Working-view semantics: Requires Attention ⊂ All Wines
-      expect(attention.length).toBeLessThan(loaded.data.items.length)
-      expect(loaded.data.items.length).toBe(attention.length + noActionRequired.length)
+      expect(attention.length).toBeLessThan(review.items.length)
+      expect(review.items.length).toBe(attention.length + noActionRequired.length)
 
       const byPlu = (plu: string) => {
-        const row = attention.find((i) => i.externalPlu === plu) ?? loaded.data.items.find((i) => i.externalPlu === plu)
+        const row =
+          attention.find((i) => i.externalPlu === plu) ??
+          review.items.find((i) => i.externalPlu === plu)
         if (!row || row.systemStatus !== 'requires_attention') {
           throw new Error(`Expected Requires Attention row for PLU ${plu}`)
         }
@@ -257,10 +260,10 @@ describe('Stage 6C Full Pricing Review + Action Document smoke', () => {
       expect(noAction.ok).toBe(true)
 
       // Decide any remaining attention rows so completion is possible.
-      loaded = await getPricingReview(reviewId, userId)
-      expect(loaded.ok).toBe(true)
-      if (!loaded.ok) throw new Error(loaded.error)
-      for (const item of loaded.data.items) {
+      const reloaded = await getPricingReview(reviewId, userId)
+      expect(reloaded.ok).toBe(true)
+      if (!reloaded.ok) throw new Error(reloaded.error)
+      for (const item of reloaded.data.items) {
         if (item.systemStatus === 'requires_attention' && item.decision == null) {
           const extra = await saveReviewItemDecision(reviewId, item.id, userId, {
             decision: 'no_action',
